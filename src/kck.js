@@ -223,3 +223,59 @@ export async function deriveKey(passphrase, { salt = '', iterations = KDF_ITERAT
 export function randomBits(n) {
   const b = new Uint8Array(Math.ceil(n / 8)); globalThis.crypto.getRandomValues(b); return bytesToBits(b).slice(0, n);
 }
+
+// ---------- alpha mode (glyph32): uppercase letters + digits, 5 bit glyph + 2 bit color = 7 bit/symbol ----------
+// 36 chars minus {0, 1, 8, U}, in this fixed order (index = 5-bit value):
+export const ALPHA = '2345679ABCDEFGHIJKLMNOPQRSTVWXYZ';
+// Text: "A(256+12bit)" header, then pairs <glyph><color digit>, grouped by 4 with spaces (whitespace ignored).
+export function encodeAlpha(dataBits, { checkBits = DEFAULT_CHECK_BITS } = {}) {
+  const bits = dataBits.concat(checkCode(dataBits, checkBits)), L = bits.length, tokens = [];
+  for (let pos = 0; pos < L; pos += 7) tokens.push({ type: 'alpha', char: ALPHA[readInt(bits, pos, 5)], color: readInt(bits, pos + 5, 2) });
+  return { tokens, text: formatAlpha(tokens, dataBits.length, checkBits), totalBits: L, dataBits: dataBits.length, checkBits };
+}
+export function formatAlpha(tokens, dataLen, checkBits) {
+  return `A(${dataLen}+${checkBits}bit)` + tokens.map((t, i) => (i && i % 4 === 0 ? ' ' : '') + t.char + t.color).join('');
+}
+// Uncertainty: '?' as glyph (any of 32) or as color (any of 4).
+export function parseAlpha(text) {
+  const t = text.replace(/\s+/g, '').toUpperCase();
+  const m = /^A[(（](\d+)(?:\+(\d+))?BIT[)）]/.exec(t);
+  if (!m) throw new Error('missing header like A(256+12bit)');
+  const dataBits = +m[1], checkBits = m[2] === undefined ? DEFAULT_CHECK_BITS : +m[2];
+  const body = t.slice(m[0].length), n = Math.ceil((dataBits + checkBits) / 7);
+  if (body.length !== 2 * n) throw new Error(`expected ${n} symbols (${2 * n} chars), got ${body.length} chars`);
+  const tokens = [];
+  for (let i = 0; i < n; i++) {
+    const g = body[2 * i], c = body[2 * i + 1];
+    if (g !== '?' && !ALPHA.includes(g)) throw new Error(`"${g}" is not in the alpha set (0, 1, 8, U are excluded)`);
+    if (!/[0-3?]/.test(c)) throw new Error(`bad color "${c}" after "${g}"`);
+    const gs = g === '?' ? [...Array(32).keys()] : [ALPHA.indexOf(g)], cs = c === '?' ? [0, 1, 2, 3] : [+c];
+    tokens.push({ char: g, spec: c, options: gs.flatMap(a => cs.map(b => a * 4 + b)) }); // 7-bit values
+  }
+  return { dataBits, checkBits, tokens };
+}
+export function decodeAlpha(text, { maxCandidates = 2_000_000 } = {}) {
+  const p = parseAlpha(text), L = p.dataBits + p.checkBits;
+  const total = p.tokens.reduce((a, t) => a * t.options.length, 1);
+  if (total > maxCandidates) throw new Error(`too many combinations (${total}); narrow the uncertainty`);
+  const choice = new Array(p.tokens.length).fill(0), results = []; let tried = 0;
+  for (;;) {
+    tried++;
+    const bits = [];
+    p.tokens.forEach((t, k) => { const v = t.options[choice[k]]; for (let b = 6; b >= 0; b--) bits.push((v >> b) & 1); });
+    if (bits.slice(L).every(b => b === 0)) {
+      const data = bits.slice(0, p.dataBits), chk = bits.slice(p.dataBits, L);
+      if (checkCode(data, p.checkBits).every((b, j) => b === chk[j])) {
+        const tokens = p.tokens.map((t, k) => ({ type: 'alpha', char: ALPHA[t.options[choice[k]] >> 2], color: t.options[choice[k]] & 3 }));
+        results.push({ bits: data, hex: bitsToHex(data), text: formatAlpha(tokens, p.dataBits, p.checkBits), tokens });
+      }
+    }
+    let k = 0;
+    while (k < choice.length && ++choice[k] === p.tokens[k].options.length) choice[k++] = 0;
+    if (k === choice.length) break;
+  }
+  return { candidates: results, tried, total, dataBits: p.dataBits, checkBits: p.checkBits };
+}
+// Dispatch on header: "A(" = alpha mode, "(" = kanji mode.
+export const isAlphaText = (text) => /^\s*[Aa]\s*[(（]/.test(text);
+export const decodeAny = (pool, text, o) => isAlphaText(text) ? decodeAlpha(text, o) : decodeText(pool, text, o);

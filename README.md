@@ -39,6 +39,23 @@
 ### hash モード
 パスフレーズから PBKDF2-HMAC-SHA256（600000 回、ソルト `kanji-color-key/v1:` + 任意文字列）で 256 bit を導出してエンコード。
 
+## 英数字モード（alpha / glyph32）
+
+*Alpha mode: 32 uppercase glyphs × 4 colors = 7 bit per symbol; 256-bit key + 12-bit check = 39 symbols.*
+
+- 文字集合（この順で 0〜31、5 bit）: **`2345679ABCDEFGHIJKLMNOPQRSTVWXYZ`**（A–Z・0–9 から紛らわしい `0` `1` `8` `U` を除外）
+- 各文字を 4 色（0 黒・1 赤・2 青・3 緑, 2 bit）で書く → **7 bit/文字**
+- 漢字モードと同じチェックコード（既定 12 bit）を付け、ヘッダ `A(データ+チェックbit)` で始める（先頭の `A` でモードを判別）。
+- 文字＋色数字のペアを並べ、4 ペアごとに空白（空白は無視、大文字小文字も区別しない）。端数ビットは 0 埋め。
+- 256 bit + 12 bit = 268 bit → **常に 39 文字**（273 bit、5 bit は 0 埋め）。
+- デコード時は文字・色どちらにも `?`（不明）を書ける。候補はチェックコードで絞り込む。
+
+```
+A(256+12bit)2030C0B3 9261D2S2 H3R26392 O1V391Q1 X3I3R021 4140S2K0 D2P1M2Y0 K0S2O1H3 S2G3I1V3 Z0N2B0
+```
+
+![alpha mode](docs/screenshot-alpha.png)
+
 ## 使い方
 ```sh
 node bin/kck.js random                     # ランダム256bit
@@ -46,6 +63,8 @@ node bin/kck.js encode <hex>
 node bin/kck.js encode-bits 0101101
 node bin/kck.js hash "passphrase" --salt me
 node bin/kck.js decode "(256+12bit)唖[10]02020303施..."
+node bin/kck.js random --alpha              # 英数字モード（encode/encode-bits/hash でも --alpha）
+node bin/kck.js decode "A(256+12bit)2030C0B3 ..."   # ヘッダでモード自動判別
 node --test test/
 node tools/build-web.js                    # docs/index.html を再生成
 ```

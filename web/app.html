@@ -15,6 +15,7 @@ button{padding:6px 12px;margin:4px 4px 4px 0;cursor:pointer}fieldset{border:1px 
 <span style="color:#111">0 黒</span><span style="color:#d62828">1 赤</span><span style="color:#1d4ed8">2 青</span><span style="color:#15803d">3 緑</span></span><br>
 <small>完全オフラインで動作します（外部通信なし）。ストロークデータ: KanjiVG (CC BY-SA 3.0)。</small></p>
 <fieldset><legend>エンコード</legend>
+モード: <label><input type="radio" name="mode" value="kanji" checked style="width:auto">漢字＋画の色 (12bit/字＋2bit/画)</label> <label><input type="radio" name="mode" value="alpha" style="width:auto">英数字32種＋色 (7bit/字, <code>2345679ABCDEFGHIJKLMNOPQRSTVWXYZ</code>)</label><br>
 <button id="bRand">ランダム256bit</button> 16進: <input id="hex" placeholder="16進データ (例: 256bit = 64桁)">
 または 2進: <input id="bin" placeholder="0101... (任意長)">
 パスフレーズ (hashモード, PBKDF2-SHA256 600000回): <input id="pass" type="password" placeholder="passphrase"> ソルト: <input id="salt" placeholder="(任意)">
@@ -23,8 +24,8 @@ button{padding:6px 12px;margin:4px 4px 4px 0;cursor:pointer}fieldset{border:1px 
 <div id="encInfo" class="mono"></div><div id="encOut" class="out"></div><div id="cards" class="cards"></div>
 </fieldset>
 <fieldset><legend>デコード</legend>
-<small>記法: <code>?</code>=色不明, <code>(56)</code>=相対順序は保つが位置不明, <code>[56]</code>=順序入れ替えの可能性。候補を列挙しチェックコードで絞り込みます。</small>
-<textarea id="dec" rows="3" placeholder="(256+12bit)處23213313000圃..."></textarea>
+<small>記法: <code>?</code>=色不明, <code>(56)</code>=相対順序は保つが位置不明, <code>[56]</code>=順序入れ替えの可能性（漢字モード）。英数字モードは文字・色どちらにも <code>?</code> 可。候補を列挙しチェックコードで絞り込みます。</small>
+<textarea id="dec" rows="3" placeholder="(256+12bit)處23213313000圃...  または  A(256+12bit)F2D0A0Q1 ..."></textarea>
 <button id="bDec">デコード</button><div id="decOut" class="mono"></div>
 </fieldset>
 <p><small>MIT License © zmlworks. このページとリポジトリはAIアシスタント Grok Bot により自律的に運用されています。<a href="https://github.com/zmlworks/kanji-color-key">GitHub</a></small></p>
@@ -42,22 +43,25 @@ function svgFor(idx, colors) {
   }).join('') + `</svg>`;
 }
 function show(r, extra = '') {
-  $('encInfo').textContent = extra + `${r.totalBits}bit (データ${r.dataBits}+チェック${r.checkBits}) → 漢字${r.tokens.filter(t => t.type === 'kanji').length}字 / 色付き画${r.tokens.reduce((a, t) => a + (t.type === 'kanji' ? t.colors.length : 0), 0)} / 16進${r.tokens.filter(t => t.type === 'hex').length}字`;
+  $('encInfo').textContent = extra + `${r.totalBits}bit (データ${r.dataBits}+チェック${r.checkBits}) → 漢字${r.tokens.filter(t => t.type === 'kanji').length}字 / 英数字${r.tokens.filter(t => t.type === 'alpha').length} / 色付き画${r.tokens.reduce((a, t) => a + (t.type === 'kanji' ? t.colors.length : 0), 0)} / 16進${r.tokens.filter(t => t.type === 'hex').length}字`;
   $('encOut').textContent = r.text;
   $('cards').innerHTML = r.tokens.map(t => t.type === 'kanji'
     ? `<div class="card">${svgFor(t.index, t.colors)}<br>${t.char} ${t.colors.join('')}</div>`
+    : t.type === 'alpha' ? `<div class="card" style="min-width:56px"><div style="font:bold 44px ui-monospace,monospace;color:${COLOR_CSS[t.color]}">${t.char}</div>${t.char}${t.color}</div>`
     : `<div class="card"><div style="font-size:64px;width:120px;color:${COLOR_CSS[t.color]}">${t.char}</div>${t.char}${t.color}</div>`).join('');
 }
-const enc = (bits, extra) => { try { show(encodeBits(pool, bits, { checkBits: +$('chk').value }), extra); } catch (e) { $('encInfo').innerHTML = `<span class="err">${e.message}</span>`; } };
+const enc = (bits, extra) => { try { show((document.querySelector('input[name=mode]:checked').value === 'alpha' ? encodeAlpha(bits, { checkBits: +$('chk').value }) : encodeBits(pool, bits, { checkBits: +$('chk').value })), extra); } catch (e) { $('encInfo').innerHTML = `<span class="err">${e.message}</span>`; } };
 $('bRand').onclick = () => { const b = randomBits(256); $('hex').value = bitsToHex(b); enc(b); };
 $('bHex').onclick = () => { try { enc(hexToBits($('hex').value)); } catch (e) { $('encInfo').textContent = e.message; } };
 $('bBin').onclick = () => { try { enc(parseBitString($('bin').value)); } catch (e) { $('encInfo').textContent = e.message; } };
 $('bPass').onclick = async () => { $('encInfo').textContent = '導出中…'; const k = await deriveKey($('pass').value, { salt: $('salt').value }); const b = bytesToBits(k); $('hex').value = bitsToHex(b); enc(b, '鍵 ' + bitsToHex(b) + '\n'); };
 $('bDec').onclick = () => {
-  try { const r = decodeText(pool, $('dec').value);
+  try { const r = decodeAny(pool, $('dec').value);
     $('decOut').innerHTML = `${r.tried}通り試行 → チェック通過 ${r.candidates.length}件<br>` + r.candidates.slice(0, 50).map(c => `<div>${c.hex}<br><small>${c.text}</small></div>`).join('');
   } catch (e) { $('decOut').innerHTML = `<span class="err">${e.message}</span>`; }
 };
+if (location.hash === '#alpha') { document.querySelector('input[value=alpha]').checked = true; const b = hexToBits('00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'); $('hex').value = bitsToHex(b); enc(b);
+  $('dec').value = $('encOut').textContent.replace(/^(A\(\d+\+\d+bit\)\S)\d/, '$1?'); $('bDec').onclick(); }
 if (location.hash === '#demo') { const b = hexToBits('00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'); $('hex').value = bitsToHex(b); enc(b);
   $('dec').value = $('encOut').textContent.replace(/^(\(\d+\+\d+bit\)\S)(\d)(\d)/, '$1[$3$2]'); $('bDec').onclick(); }
 </script></body></html>
