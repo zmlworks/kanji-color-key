@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>kanji-color-key — 4色の書き順で鍵を手書きする</title>
+<style>
+body{font-family:system-ui,"Noto Sans JP",sans-serif;max-width:980px;margin:0 auto;padding:16px;color:#222;background:#fafaf7}
+h1{font-size:1.4em;margin:.2em 0}textarea,input{width:100%;box-sizing:border-box;font:15px/1.4 ui-monospace,monospace;padding:6px}
+button{padding:6px 12px;margin:4px 4px 4px 0;cursor:pointer}fieldset{border:1px solid #ccc;border-radius:8px;margin:12px 0}
+.out{font:18px/1.6 ui-monospace,"Noto Sans JP",monospace;word-break:break-all;background:#fff;border:1px solid #ddd;padding:8px;border-radius:6px}
+.cards{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.card{background:#fff;border:1px solid #ddd;border-radius:6px;padding:4px;text-align:center;font-size:12px}
+.card svg{width:120px;height:120px}.legend span{display:inline-block;margin-right:10px;font-weight:bold}
+.err{color:#b00}small{color:#666}.mono{font-family:ui-monospace,monospace;word-break:break-all}
+</style></head><body>
+<h1>kanji-color-key</h1>
+<p>256bit鍵などを「漢字(12bit)＋各画の色(2bit/画)」で手書き可能な形にします。<span class="legend">
+<span style="color:#111">0 黒</span><span style="color:#d62828">1 赤</span><span style="color:#1d4ed8">2 青</span><span style="color:#15803d">3 緑</span></span><br>
+<small>完全オフラインで動作します（外部通信なし）。ストロークデータ: KanjiVG (CC BY-SA 3.0)。</small></p>
+<fieldset><legend>エンコード</legend>
+<button id="bRand">ランダム256bit</button> 16進: <input id="hex" placeholder="16進データ (例: 256bit = 64桁)">
+または 2進: <input id="bin" placeholder="0101... (任意長)">
+パスフレーズ (hashモード, PBKDF2-SHA256 600000回): <input id="pass" type="password" placeholder="passphrase"> ソルト: <input id="salt" placeholder="(任意)">
+チェックビット数: <input id="chk" type="number" value="12" min="0" max="64" style="width:6em">
+<div><button id="bHex">16進をエンコード</button><button id="bBin">2進をエンコード</button><button id="bPass">パスフレーズから導出</button></div>
+<div id="encInfo" class="mono"></div><div id="encOut" class="out"></div><div id="cards" class="cards"></div>
+</fieldset>
+<fieldset><legend>デコード</legend>
+<small>記法: <code>?</code>=色不明, <code>(56)</code>=相対順序は保つが位置不明, <code>[56]</code>=順序入れ替えの可能性。候補を列挙しチェックコードで絞り込みます。</small>
+<textarea id="dec" rows="3" placeholder="(256+12bit)處23213313000圃..."></textarea>
+<button id="bDec">デコード</button><div id="decOut" class="mono"></div>
+</fieldset>
+<p><small>MIT License © zmlworks. このページとリポジトリはAIアシスタント Grok Bot により自律的に運用されています。<a href="https://github.com/zmlworks/kanji-color-key">GitHub</a></small></p>
+<script>
+/*__CORE__*/
+const POOLDATA = /*__POOL__*/;
+const pool = makePool(POOLDATA.kanji, POOLDATA.strokes.map(s => s.length));
+const $ = id => document.getElementById(id);
+function svgFor(idx, colors) {
+  const ps = POOLDATA.strokes[idx];
+  return `<svg viewBox="0 0 109 109" xmlns="http://www.w3.org/2000/svg">` + ps.map((d, i) => {
+    const c = colors[i] ?? 0, p = ps[i].match(/^M\s*([-\d.]+)[ ,]([-\d.]+)/);
+    return `<path d="${d}" fill="none" stroke="${COLOR_CSS[c]}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>` +
+      (p ? `<text x="${+p[1] - 3}" y="${+p[2] - 1}" font-size="7" fill="${COLOR_CSS[c]}">${i + 1}</text>` : '');
+  }).join('') + `</svg>`;
+}
+function show(r, extra = '') {
+  $('encInfo').textContent = extra + `${r.totalBits}bit (データ${r.dataBits}+チェック${r.checkBits}) → 漢字${r.tokens.filter(t => t.type === 'kanji').length}字 / 色付き画${r.tokens.reduce((a, t) => a + (t.type === 'kanji' ? t.colors.length : 0), 0)} / 16進${r.tokens.filter(t => t.type === 'hex').length}字`;
+  $('encOut').textContent = r.text;
+  $('cards').innerHTML = r.tokens.map(t => t.type === 'kanji'
+    ? `<div class="card">${svgFor(t.index, t.colors)}<br>${t.char} ${t.colors.join('')}</div>`
+    : `<div class="card"><div style="font-size:64px;width:120px;color:${COLOR_CSS[t.color]}">${t.char}</div>${t.char}${t.color}</div>`).join('');
+}
+const enc = (bits, extra) => { try { show(encodeBits(pool, bits, { checkBits: +$('chk').value }), extra); } catch (e) { $('encInfo').innerHTML = `<span class="err">${e.message}</span>`; } };
+$('bRand').onclick = () => { const b = randomBits(256); $('hex').value = bitsToHex(b); enc(b); };
+$('bHex').onclick = () => { try { enc(hexToBits($('hex').value)); } catch (e) { $('encInfo').textContent = e.message; } };
+$('bBin').onclick = () => { try { enc(parseBitString($('bin').value)); } catch (e) { $('encInfo').textContent = e.message; } };
+$('bPass').onclick = async () => { $('encInfo').textContent = '導出中…'; const k = await deriveKey($('pass').value, { salt: $('salt').value }); const b = bytesToBits(k); $('hex').value = bitsToHex(b); enc(b, '鍵 ' + bitsToHex(b) + '\n'); };
+$('bDec').onclick = () => {
+  try { const r = decodeText(pool, $('dec').value);
+    $('decOut').innerHTML = `${r.tried}通り試行 → チェック通過 ${r.candidates.length}件<br>` + r.candidates.slice(0, 50).map(c => `<div>${c.hex}<br><small>${c.text}</small></div>`).join('');
+  } catch (e) { $('decOut').innerHTML = `<span class="err">${e.message}</span>`; }
+};
+if (location.hash === '#demo') { const b = hexToBits('00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'); $('hex').value = bitsToHex(b); enc(b);
+  $('dec').value = $('encOut').textContent.replace(/^(\(\d+\+\d+bit\)\S)(\d)(\d)/, '$1[$3$2]'); $('bDec').onclick(); }
+</script></body></html>

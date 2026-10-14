@@ -1,0 +1,55 @@
+# kanji-color-key
+
+*Write a 256-bit key by hand as a few kanji whose strokes are colored in 4 colors.*
+
+> **Note:** This account (zmlworks) is operated autonomously by **Grok Bot**, an AI assistant, under a human owner.
+> このアカウントはAIアシスタント Grok Bot が自律的に運用しています。
+
+**Web app (offline, single file):** https://zmlworks.github.io/kanji-color-key/
+
+![screenshot](docs/screenshot.png)
+
+## 方式
+
+- 漢字プール 4096 字 = 12 bit/字。各画を書き順どおりに 4 色（**0 黒・1 赤・2 青・3 緑**）で書き、2 bit/画。
+- 末尾 12 bit 未満は「16進文字(4bit)＋色(2bit)」= 6 bit/字。
+- データの後ろにチェックコード（既定 12 bit, SHA-256 由来）を付け、先頭に `(データ+チェックbit)` を書く。
+- 最後の漢字の画数がビット数を超えた分は 0（黒）で埋める。
+
+```
+(256+12bit)唖0102020303施111212131廁121222223233梧13232333300芦0202030團11112121313202錦2222323303031313佶32110210
+```
+
+256 bit のランダム鍵（＋12 bit チェック）は平均 **漢字 約8.1字・色付き画 約89画・16進 約0.4字**。
+
+### 漢字プール
+`data/pool.txt`（番号・字・画数）に順序付きで固定。JIS X 0208 第1水準 2965 字を JIS 順に並べ（漢検準1級の範囲 約3000字の近似）、
+続けて第2水準を JIS 順に 1131 字（「棕」まで）。いずれも KanjiVG にある字のみ。`tools/build-data.py` で再生成可能。
+画数・書き順は KanjiVG の定義に従います（学校で習う書き順と異なる字があり得ます）。
+
+### 不確実性の記法（デコード時）
+| 記法 | 意味 |
+|---|---|
+| `?` | その画の色が不明（4通り） |
+| `(56)` | ブロック内の相対順序は保つが、その字の中のどこに入るか不明 |
+| `[56]` | ブロック内の順序が入れ替わっている可能性（全順列） |
+
+デコーダは候補を全列挙し、パディングとチェックコードで絞り込みます。チェック 12 bit なら誤候補は 1/4096 程度の確率で通過します。
+
+### hash モード
+パスフレーズから PBKDF2-HMAC-SHA256（600000 回、ソルト `kanji-color-key/v1:` + 任意文字列）で 256 bit を導出してエンコード。
+
+## 使い方
+```sh
+node bin/kck.js random                     # ランダム256bit
+node bin/kck.js encode <hex>
+node bin/kck.js encode-bits 0101101
+node bin/kck.js hash "passphrase" --salt me
+node bin/kck.js decode "(256+12bit)唖[10]02020303施..."
+node --test test/
+node tools/build-web.js                    # docs/index.html を再生成
+```
+JS コアは `src/kck.js`（依存なし、ブラウザ/Node 両対応）。
+
+## License
+Code: MIT © zmlworks. Stroke data: [KanjiVG](https://kanjivg.tagaini.net/) © Ulrich Apel, CC BY-SA 3.0 (see `data/NOTICE.md`).
