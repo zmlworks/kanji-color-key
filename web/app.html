@@ -7,7 +7,7 @@ h1{font-size:1.4em;margin:.2em 0}textarea,input{width:100%;box-sizing:border-box
 button{padding:6px 12px;margin:4px 4px 4px 0;cursor:pointer}fieldset{border:1px solid #ccc;border-radius:8px;margin:12px 0}
 .out{font:18px/1.6 ui-monospace,"Noto Sans JP",monospace;word-break:break-all;background:#fff;border:1px solid #ddd;padding:8px;border-radius:6px}
 .cards{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.card{background:#fff;border:1px solid #ddd;border-radius:6px;padding:4px;text-align:center;font-size:12px}
-.card svg{width:120px;height:120px}.legend span{display:inline-block;margin-right:10px;font-weight:bold}
+.card svg{width:120px;height:120px}#mixedBox .card svg{width:76px;height:76px}#mixedBox .card div{font-size:30px!important}.legend span{display:inline-block;margin-right:10px;font-weight:bold}
 .err{color:#b00}small{color:#666}.mono{font-family:ui-monospace,monospace;word-break:break-all}
 </style></head><body>
 <h1>kanji-color-key</h1>
@@ -24,6 +24,14 @@ button{padding:6px 12px;margin:4px 4px 4px 0;cursor:pointer}fieldset{border:1px 
 チェックビット数: <input id="chk" type="number" value="12" min="0" max="64" style="width:6em">
 <div><button id="bHex">16進をエンコード</button><button id="bBin">2進をエンコード</button><button id="bPass">パスフレーズから導出</button></div>
 <div id="encInfo" class="mono"></div><div id="encOut" class="out"></div><div id="cards" class="cards"></div>
+</fieldset>
+<fieldset id="mixedBox"><legend>ミックス（漢字／英数字を位置ごとに選択）</legend>
+<div>英数字にする位置: <span id="mPos"></span> <small>（未チェック・13番目以降は漢字）</small></div>
+<div>データビット数: <input id="mBits" type="range" min="64" max="512" step="8" value="256" style="width:50%;vertical-align:middle"> <b id="mBitsV">256</b> bit ＋ チェック（上の「チェックビット数」）
+<button id="mRoll">🎲 振り直す</button></div>
+<div id="mHex" class="mono"></div>
+<div style="display:flex;gap:12px;flex-wrap:wrap"><div style="flex:1;min-width:300px"><b>(a) 末尾も漢字</b><div id="mInfoA" class="mono"></div><div id="mOutA" class="out"></div><div id="mCardsA" class="cards"></div></div>
+<div style="flex:1;min-width:300px"><b>(b) 末尾を英数字で</b><div id="mInfoB" class="mono"></div><div id="mOutB" class="out"></div><div id="mCardsB" class="cards"></div></div></div>
 </fieldset>
 <fieldset><legend>デコード</legend>
 <small>記法: <code>?</code>=色不明, <code>(56)</code>=相対順序は保つが位置不明, <code>[56]</code>=順序入れ替えの可能性（漢字モード）。フレーズ(P)は画の色に ? () []、尾の英数字に ? 可。英数字モードは文字・色どちらにも <code>?</code> 可。候補を列挙しチェックコードで絞り込みます。</small>
@@ -47,11 +55,28 @@ function svgFor(idx, colors) {
 function show(r, extra = '') {
   $('encInfo').textContent = extra + `${r.totalBits}bit (データ${r.dataBits}+チェック${r.checkBits}) → 漢字${r.tokens.filter(t => t.type === 'kanji').length}字 / 英数字${r.tokens.filter(t => t.type === 'alpha').length} / 色付き画${r.tokens.reduce((a, t) => a + (t.type === 'kanji' ? t.colors.length : 0), 0)} / 16進${r.tokens.filter(t => t.type === 'hex').length}字`;
   $('encOut').textContent = r.text;
-  $('cards').innerHTML = r.tokens.map(t => t.type === 'kanji'
+  $('cards').innerHTML = cardsHtml(r.tokens);
+}
+function cardsHtml(tokens) {
+  return tokens.map(t => t.type === 'kanji'
     ? `<div class="card">${svgFor(t.index, t.colors)}<br>${t.char} ${t.colors.join('')}</div>`
     : t.type === 'alpha' ? `<div class="card" style="min-width:56px"><div style="font:bold 44px ui-monospace,monospace;color:${COLOR_CSS[t.color]}">${t.char}</div>${t.char}${t.color}</div>`
     : `<div class="card"><div style="font-size:64px;width:120px;color:${COLOR_CSS[t.color]}">${t.char}</div>${t.char}${t.color}</div>`).join('');
 }
+$('mPos').innerHTML = Array.from({ length: 12 }, (_, i) => `<label style="margin-right:6px"><input type="checkbox" value="${i + 1}" style="width:auto">${i + 1}</label>`).join('');
+let mKey = randomBits(512);
+function renderMixed() {
+  const n = +$('mBits').value, bits = mKey.slice(0, n), ap = [...document.querySelectorAll('#mPos input:checked')].map(x => +x.value);
+  $('mBitsV').textContent = n; $('mHex').textContent = '鍵 ' + bitsToHex(bits);
+  for (const [tail, S] of [['kanji', 'A'], ['alpha', 'B']]) {
+    const r = encodeMixed(pool, bits, { checkBits: +$('chk').value, alphaPos: ap, tail });
+    $('mInfo' + S).textContent = `漢字${r.tokens.filter(t => t.type === 'kanji').length}字・英数字${r.tokens.filter(t => t.type === 'alpha').length}字・色付き画${r.tokens.reduce((a, t) => a + (t.type === 'kanji' ? t.colors.length : 0), 0)}／書く量${r.writtenBits}bit（必要${r.totalBits}）`;
+    $('mOut' + S).textContent = r.text; $('mCards' + S).innerHTML = cardsHtml(r.tokens);
+  }
+}
+$('mPos').onchange = renderMixed; $('mBits').oninput = renderMixed; $('chk').addEventListener('input', renderMixed);
+$('mRoll').onclick = () => { mKey = randomBits(512); renderMixed(); };
+renderMixed();
 const SAMPLES = ['国破山河在城春草木深', '春夏秋冬', '臨機応変', '東京駅前喫茶店'];
 $('pSamples').innerHTML = SAMPLES.map(p => `<button type="button" data-p="${p}">${p}</button>`).join('');
 $('pSamples').onclick = e => { if (e.target.dataset.p) { $('phrase').value = e.target.dataset.p; document.querySelector('input[value=phrase]').checked = true; updCap(); } };
@@ -72,6 +97,7 @@ $('bDec').onclick = () => {
     $('decOut').innerHTML = `${r.tried}通り試行 → チェック通過 ${r.candidates.length}件<br>` + r.candidates.slice(0, 50).map(c => `<div>${c.hex}<br><small>${c.text}</small></div>`).join('');
   } catch (e) { $('decOut').innerHTML = `<span class="err">${e.message}</span>`; }
 };
+if (location.hash === '#mixed') { mKey = hexToBits('c2fb9f70272dae3adee45198b576b4873f5ad57ac41696bdfaa92e6de9923e14'.repeat(2)); for (const v of [3, 7]) document.querySelector(`#mPos input[value="${v}"]`).checked = true; renderMixed(); const f = document.querySelector('fieldset'); f.parentNode.insertBefore($('mixedBox'), f); }
 if (location.hash === '#phrase') { document.querySelector('input[value=phrase]').checked = true; const b = hexToBits('c2fb9f70272dae3adee45198b576b4873f5ad57ac41696bdfaa92e6de9923e14'); $('hex').value = bitsToHex(b); enc(b);
   $('dec').value = $('encOut').textContent.replace(/^(P\(\d+\+\d+bit\)\S)\d/, '$1?'); $('bDec').onclick(); setTimeout(() => scrollTo(0, 0), 0); }
 if (location.hash === '#alpha') { document.querySelector('input[value=alpha]').checked = true; const b = hexToBits('00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'); $('hex').value = bitsToHex(b); enc(b);

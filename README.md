@@ -71,6 +71,23 @@ P(256+12bit)国30023323破2133130002山130河23122320在322313城232101101春212
 
 ![phrase mode](docs/screenshot-phrase.png)
 
+## ミックスモード（mixed）
+
+*Mixed mode: each symbol is either a pool kanji (12 bit + 2 bit/stroke) or an alpha-32 glyph (7 bit); you pick which positions (1–12) are glyphs. Two endings are offered: (a) keep kanji to the end (last one zero-padded), (b) finish with glyphs once the next kanji would not be fully used.*
+
+- ヘッダ `M(データ+チェックbit)`。記号は空白区切り（空白は省略可。英数字は ASCII なので漢字と区別でき、漢字の後の色数字は画数で決まる）。
+- 位置 1〜12 のうち指定した位置が英数字、それ以外と13番目以降は漢字。デコードには位置指定は不要（字種で判別）。
+- (a) 末尾も漢字: 最後の漢字の余り画は黒。(b) 末尾を英数字: 次の漢字が収まりきらない時点で英数字に切替え、無駄は 7bit 未満。
+- 256+12bit 平均（2000回）: 位置指定なし (a) 漢字8.4字・書く量285bit / (b) 漢字7.4字＋英数字2.8字・271bit。
+- Web アプリ: 位置チェックボックス、データビット数スライダー（64〜512, 8刻み）、🎲振り直し、(a)(b) を並べて表示。
+
+```
+M(256+12bit)處23213313000 圃1223203223 I1 叮03030 進23112210032 砥1122223311 K0 叶12233 鍍22102321231322121 叫011033 厨000000000000
+M(256+12bit)處23213313000 圃1223203223 I1 叮03030 進23112210032 砥1122223311 K0 叶12233 鍍22102321231322121 叫011033 E2 20
+```
+
+![mixed mode](docs/screenshot-mixed.png)
+
 ## 使い方
 ```sh
 node bin/kck.js random                     # ランダム256bit
@@ -82,6 +99,7 @@ node bin/kck.js random --alpha              # 英数字モード（encode/encode
 node bin/kck.js decode "A(256+12bit)2030C0B3 ..."   # ヘッダでモード自動判別
 node bin/kck.js capacity 国破山河在城春草木深  # 画数と容量
 node bin/kck.js random --phrase 国破山河在城春草木深 [--max-tail 0]
+node bin/kck.js random --bits 256 --alpha-pos 3,7 --tail alpha   # ミックス
 node --test test/
 node tools/build-web.js                    # docs/index.html を再生成
 ```

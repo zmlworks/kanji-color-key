@@ -278,7 +278,7 @@ export function decodeAlpha(text, { maxCandidates = 2_000_000 } = {}) {
 }
 // Dispatch on header: "A(" = alpha mode, "(" = kanji mode.
 export const isAlphaText = (text) => /^\s*[Aa]\s*[(（]/.test(text);
-export const decodeAny = (pool, text, o) => isAlphaText(text) ? decodeAlpha(text, o) : isPhraseText(text) ? decodePhrase(pool, text, o) : decodeText(pool, text, o);
+export const decodeAny = (pool, text, o) => isAlphaText(text) ? decodeAlpha(text, o) : isPhraseText(text) ? decodePhrase(pool, text, o) : isMixedText(text) ? decodeMixed(pool, text, o) : decodeText(pool, text, o);
 
 // ---------- phrase mode: fixed, meaningful kanji; entropy only in stroke colors, then alpha-32 tail ----------
 // Text: "P(256+12bit)" + for each phrase kanji: <kanji><color digit per stroke> + "/" + alpha pairs (as in alpha mode).
@@ -372,4 +372,93 @@ export function decodePhrase(pool, text, { maxCandidates = 2_000_000 } = {}) {
     if (k === choice.length) break;
   }
   return { candidates: results, tried, total, dataBits: p.dataBits, checkBits: p.checkBits, capacity: p.capacity };
+}
+
+// ---------- mixed mode: each symbol is a pool kanji (12 bit + 2 bit/stroke) or an alpha-32 glyph (7 bit) ----------
+// alphaPos: Set of 1-based symbol positions that are alpha glyphs; other positions are kanji.
+// tail 'kanji': keep the scheme to the end (last symbol zero-padded).
+// tail 'alpha': as soon as the next kanji would not be fully used by the remaining bits, finish with alpha glyphs.
+// Text: "M(256+12bit)" + symbols separated by spaces: <kanji><color digits> or <glyph><color digit>.
+export function encodeMixed(pool, dataBits, { checkBits = DEFAULT_CHECK_BITS, alphaPos = [], tail = 'kanji' } = {}) {
+  const ap = new Set(alphaPos), bits = dataBits.concat(checkCode(dataBits, checkBits)), L = bits.length, tokens = [];
+  let pos = 0, alphaRest = false;
+  for (let i = 1; pos < L; i++) {
+    let isAlpha = alphaRest || ap.has(i);
+    if (!isAlpha && tail === 'alpha') {
+      const idx = readInt(bits, pos, 12);
+      if (L - pos < 12 + 2 * pool.counts[idx]) { alphaRest = isAlpha = true; }
+    }
+    if (isAlpha) { tokens.push({ type: 'alpha', char: ALPHA[readInt(bits, pos, 5)], color: readInt(bits, pos + 5, 2) }); pos += 7; }
+    else {
+      const idx = readInt(bits, pos, 12), colors = []; pos += 12;
+      for (let s = 0; s < pool.counts[idx]; s++) { colors.push(readInt(bits, pos, 2)); pos += 2; }
+      tokens.push({ type: 'kanji', char: pool.chars[idx], index: idx, colors });
+    }
+  }
+  return { tokens, text: formatMixed(tokens, dataBits.length, checkBits), totalBits: L, dataBits: dataBits.length, checkBits, writtenBits: pos };
+}
+export function formatMixed(tokens, dataLen, checkBits) {
+  return `M(${dataLen}+${checkBits}bit)` + tokens.map(t => t.type === 'kanji' ? t.char + t.colors.join('') : t.char + t.color).join(' ');
+}
+export const isMixedText = (text) => /^\s*[Mm]\s*[(（]/.test(text);
+export function parseMixed(pool, text) {
+  const t = text.replace(/\s+/g, '').normalize('NFC');
+  const m = /^[Mm][(（](\d+)(?:\+(\d+))?bit[)）]/i.exec(t);
+  if (!m) throw new Error('missing header like M(256+12bit)');
+  const dataBits = +m[1], checkBits = m[2] === undefined ? DEFAULT_CHECK_BITS : +m[2];
+  const chars = [...t.slice(m[0].length)], tokens = [];
+  let i = 0, budget = dataBits + checkBits;
+  while (i < chars.length && budget > 0) {
+    const c = chars[i++];
+    if (/[0-9A-Za-z?]/.test(c)) {
+      const g = c.toUpperCase(), col = chars[i++];
+      if (g !== '?' && !ALPHA.includes(g)) throw new Error(`"${g}" is not in the alpha set (0, 1, 8, U are excluded)`);
+      if (!col || !/[0-3?]/.test(col)) throw new Error(`bad color "${col ?? ''}" after "${g}"`);
+      const gs = g === '?' ? [...Array(32).keys()] : [ALPHA.indexOf(g)], cs = col === '?' ? [0, 1, 2, 3] : [+col];
+      tokens.push({ type: 'alpha', char: g, spec: col, options: gs.flatMap(a => cs.map(b => a * 4 + b)) }); budget -= 7;
+    } else {
+      if (!pool.index.has(c)) throw new Error(`"${c}" is not in the kanji pool`);
+      const index = pool.index.get(c), need = pool.counts[index];
+      let spec = '', n = 0;
+      while (i < chars.length) {
+        const d = chars[i];
+        if (n === need && !')]'.includes(d)) break;
+        if (/[0-3?]/.test(d)) n++; else if (!'()[]'.includes(d)) break;
+        spec += d; i++;
+      }
+      if (n !== need) throw new Error(`"${c}" needs ${need} colors, got ${n}`);
+      tokens.push({ type: 'kanji', char: c, index, spec, options: expandColorSpec(spec) }); budget -= 12 + 2 * need;
+    }
+  }
+  if (budget > 0) throw new Error('text too short for header');
+  if (i < chars.length) throw new Error('trailing characters: ' + chars.slice(i).join(''));
+  return { dataBits, checkBits, tokens };
+}
+export function decodeMixed(pool, text, { maxCandidates = 2_000_000 } = {}) {
+  const p = parseMixed(pool, text), L = p.dataBits + p.checkBits;
+  const total = p.tokens.reduce((a, t) => a * t.options.length, 1);
+  if (total > maxCandidates) throw new Error(`too many combinations (${total}); narrow the uncertainty`);
+  const choice = new Array(p.tokens.length).fill(0), results = []; let tried = 0;
+  for (;;) {
+    tried++;
+    const bits = [];
+    p.tokens.forEach((t, k) => {
+      const o = t.options[choice[k]];
+      if (t.type === 'kanji') { for (let b = 11; b >= 0; b--) bits.push((t.index >> b) & 1); for (const c of o) bits.push(c >> 1, c & 1); }
+      else for (let b = 6; b >= 0; b--) bits.push((o >> b) & 1);
+    });
+    if (bits.slice(L).every(b => b === 0)) {
+      const data = bits.slice(0, p.dataBits), chk = bits.slice(p.dataBits, L);
+      if (checkCode(data, p.checkBits).every((b, j) => b === chk[j])) {
+        const tokens = p.tokens.map((t, k) => t.type === 'kanji'
+          ? { type: 'kanji', char: t.char, index: t.index, colors: t.options[choice[k]] }
+          : { type: 'alpha', char: ALPHA[t.options[choice[k]] >> 2], color: t.options[choice[k]] & 3 });
+        results.push({ bits: data, hex: bitsToHex(data), text: formatMixed(tokens, p.dataBits, p.checkBits), tokens });
+      }
+    }
+    let k = 0;
+    while (k < choice.length && ++choice[k] === p.tokens[k].options.length) choice[k++] = 0;
+    if (k === choice.length) break;
+  }
+  return { candidates: results, tried, total, dataBits: p.dataBits, checkBits: p.checkBits };
 }
