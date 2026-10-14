@@ -20,11 +20,11 @@ button{padding:6px 12px;margin:4px 4px 4px 0;cursor:pointer}fieldset{border:1px 
 <li>余剰bitが発生してもチェックになる利点があります</li>
 <li>見本の色は目安であり下に表示された色順を見てご自身の書き順で書かれることを想定しています（ある程度の揺らぎは試行できるため）</li>
 </ul>
-<p class="legend">色: <span style="color:#111">黒</span><span style="color:#d62828">赤</span><span style="color:#1d4ed8">青</span><span style="color:#15803d">緑</span></p>
+<p class="legend">英数字にも、画ごとではなく1文字ごとに色の区別があります。 色: <span style="color:#111">黒</span><span style="color:#d62828">赤</span><span style="color:#1d4ed8">青</span><span style="color:#15803d">緑</span></p>
 <fieldset><legend>鍵</legend>
-<button id="bRand">🎲 振り直す（ランダム）</button>
+<button id="bRand">乱数で実験する</button>
 データビット数: <input id="bits" type="range" min="64" max="512" step="8" value="256" style="width:35%;vertical-align:middle"> <b id="bitsV">256</b> bit
-＋ チェック <input id="chk" type="number" value="12" min="0" max="64" style="width:4em"> bit<br>
+＋ チェック <input id="chk" type="number" value="0" min="0" max="64" style="width:4em"> bit<br>
 16進: <input id="hex" type="text" placeholder="16進データ"> 2進: <input id="bin" type="text" placeholder="0101...">
 パスフレーズ (PBKDF2-SHA256 600000回): <input id="pass" type="password" placeholder="passphrase"> ソルト: <input id="salt" type="text" placeholder="(任意)">
 <div><button id="bHex">16進を使う</button><button id="bBin">2進を使う</button><button id="bPass">パスフレーズから導出</button></div>
@@ -32,7 +32,7 @@ button{padding:6px 12px;margin:4px 4px 4px 0;cursor:pointer}fieldset{border:1px 
 </fieldset>
 <fieldset id="seqBox"><legend>エンコード結果</legend>
 <div><button id="bAllK">全部漢字</button><button id="bAllA">全部英数字</button>
-<small>👆 記号をクリックすると、その位置を 漢字⇄英数字 に切り替えます（それより後ろの位置は漢字に戻ります。鍵は変わりません）。</small></div>
+<small>記号をクリックすると、その位置を 漢字⇄英数字 に切り替えます（それより後ろの位置は漢字に戻ります。鍵は変わりません）。</small></div>
 <div id="info" class="mono"></div>
 <div id="cards" class="cards"></div>
 <div id="err" class="err"></div>
@@ -48,7 +48,7 @@ button{padding:6px 12px;margin:4px 4px 4px 0;cursor:pointer}fieldset{border:1px 
 // A pool is { kanji: string of 4096 chars, counts: number[] (stroke counts in KanjiVG order) }.
 const COLORS = ['黒', '赤', '青', '緑'];
 const COLOR_CSS = ['#111111', '#d62828', '#1d4ed8', '#15803d'];
-const DEFAULT_CHECK_BITS = 12;
+const DEFAULT_CHECK_BITS = 0;
 // Color names accepted in place of digits when decoding (黒0 赤1 青2 緑3).
 const CNAME = { '黒': '0', '赤': '1', '青': '2', '緑': '3' };
 const HEX = '0123456789abcdef';
@@ -136,7 +136,7 @@ function encodeBits(pool, dataBits, { checkBits = DEFAULT_CHECK_BITS } = {}) {
 }
 const encodeHex = (pool, hex, o) => encodeBits(pool, hexToBits(hex), o);
 function formatTokens(tokens, dataLen, checkBits) {
-  return `(${dataLen}+${checkBits}bit)` + tokens.map(t => t.type === 'kanji' ? t.char + t.colors.join('') : t.char + t.color).join('');
+  return `(${dataLen}${checkBits ? '+' + checkBits : ''}bit)` + tokens.map(t => t.type === 'kanji' ? t.char + t.colors.join('') : t.char + t.color).join('');
 }
 
 // ---------- uncertain color sequences ----------
@@ -283,7 +283,7 @@ function encodeAlpha(dataBits, { checkBits = DEFAULT_CHECK_BITS } = {}) {
   return { tokens, text: formatAlpha(tokens, dataBits.length, checkBits), totalBits: L, dataBits: dataBits.length, checkBits };
 }
 function formatAlpha(tokens, dataLen, checkBits) {
-  return `A(${dataLen}+${checkBits}bit)` + tokens.map((t, i) => (i && i % 4 === 0 ? ' ' : '') + t.char + t.color).join('');
+  return `A(${dataLen}${checkBits ? '+' + checkBits : ''}bit)` + tokens.map((t, i) => (i && i % 4 === 0 ? ' ' : '') + t.char + t.color).join('');
 }
 // Uncertainty: '?' as glyph (any of 32) or as color (any of 4).
 function parseAlpha(text) {
@@ -353,7 +353,7 @@ function encodeMixed(pool, dataBits, { checkBits = DEFAULT_CHECK_BITS, alphaPos 
   return { tokens, text: formatMixed(tokens, dataBits.length, checkBits), totalBits: L, dataBits: dataBits.length, checkBits, writtenBits: pos };
 }
 function formatMixed(tokens, dataLen, checkBits) {
-  return `M(${dataLen}+${checkBits}bit)` + tokens.map(t => t.type === 'kanji' ? t.char + t.colors.join('') : t.char + t.color).join(' ');
+  return `M(${dataLen}${checkBits ? '+' + checkBits : ''}bit)` + tokens.map(t => t.type === 'kanji' ? t.char + t.colors.join('') : t.char + t.color).join(' ');
 }
 const isMixedText = (text) => /^\s*[Mm]\s*[(（]/.test(text);
 function parseMixed(pool, text) {
@@ -471,12 +471,14 @@ $('bBin').onclick = () => { try { useBits(parseBitString($('bin').value)); } cat
 $('bPass').onclick = async () => { $('keyInfo').textContent = '導出中…'; const k = await deriveKey($('pass').value, { salt: $('salt').value }); $('hex').value = bitsToHex(bytesToBits(k)); useBits(bytesToBits(k)); };
 $('bDec').onclick = () => {
   try { const r = decodeAny(pool, $('dec').value);
-    $('decOut').innerHTML = `${r.tried}通り試行 → チェック通過 ${r.candidates.length}件<br>` + r.candidates.slice(0, 50).map(c => `<div>${c.hex}<br><small>${c.text}</small></div>`).join('');
+    const note = r.checkBits === 0 ? (r.candidates.length > 1 ? '（チェックビット0のため候補を絞り込めません。チェックを付けるか、各候補を実際のパスワードマネージャ等で試してください）' : '（チェックビット0：照合なし）')
+      : (r.candidates.length > 1 ? `（${r.checkBits}bitチェックでも複数残りました。各候補を試してください）` : '');
+    $('decOut').innerHTML = `${r.tried}通り試行 → 候補 ${r.candidates.length}件${note}${r.candidates.length > 50 ? '（先頭50件のみ表示）' : ''}<br>` + r.candidates.slice(0, 50).map(c => `<div>${c.hex}<br><small>${c.text}</small></div>`).join('');
   } catch (e) { $('decOut').innerHTML = `<span class="err">${e.message}</span>`; }
 };
 if (location.hash === '#demo') {
   key = hexToBits('c2fb9f70272dae3adee45198b576b4873f5ad57ac41696bdfaa92e6de9923e14'.repeat(2));
   alphaPos = new Set([3, 6]); render();
-  const t = document.querySelector('.variant .mono').textContent; $('dec').value = t.replace(/^(M\(\d+\+\d+bit\)\S)\d/, '$1?'); $('bDec').onclick();
+  const t = document.querySelector('.variant .mono').textContent; $('dec').value = t.replace(/^(M\([\d+]+bit\)\S)\d/, '$1?'); $('bDec').onclick();
 } else render();
 </script></body></html>

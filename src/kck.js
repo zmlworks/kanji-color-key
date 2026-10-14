@@ -2,7 +2,7 @@
 // A pool is { kanji: string of 4096 chars, counts: number[] (stroke counts in KanjiVG order) }.
 export const COLORS = ['黒', '赤', '青', '緑'];
 export const COLOR_CSS = ['#111111', '#d62828', '#1d4ed8', '#15803d'];
-export const DEFAULT_CHECK_BITS = 12;
+export const DEFAULT_CHECK_BITS = 0;
 // Color names accepted in place of digits when decoding (黒0 赤1 青2 緑3).
 const CNAME = { '黒': '0', '赤': '1', '青': '2', '緑': '3' };
 const HEX = '0123456789abcdef';
@@ -90,7 +90,7 @@ export function encodeBits(pool, dataBits, { checkBits = DEFAULT_CHECK_BITS } = 
 }
 export const encodeHex = (pool, hex, o) => encodeBits(pool, hexToBits(hex), o);
 export function formatTokens(tokens, dataLen, checkBits) {
-  return `(${dataLen}+${checkBits}bit)` + tokens.map(t => t.type === 'kanji' ? t.char + t.colors.join('') : t.char + t.color).join('');
+  return `(${dataLen}${checkBits ? '+' + checkBits : ''}bit)` + tokens.map(t => t.type === 'kanji' ? t.char + t.colors.join('') : t.char + t.color).join('');
 }
 
 // ---------- uncertain color sequences ----------
@@ -237,7 +237,7 @@ export function encodeAlpha(dataBits, { checkBits = DEFAULT_CHECK_BITS } = {}) {
   return { tokens, text: formatAlpha(tokens, dataBits.length, checkBits), totalBits: L, dataBits: dataBits.length, checkBits };
 }
 export function formatAlpha(tokens, dataLen, checkBits) {
-  return `A(${dataLen}+${checkBits}bit)` + tokens.map((t, i) => (i && i % 4 === 0 ? ' ' : '') + t.char + t.color).join('');
+  return `A(${dataLen}${checkBits ? '+' + checkBits : ''}bit)` + tokens.map((t, i) => (i && i % 4 === 0 ? ' ' : '') + t.char + t.color).join('');
 }
 // Uncertainty: '?' as glyph (any of 32) or as color (any of 4).
 export function parseAlpha(text) {
@@ -307,7 +307,7 @@ export function encodeMixed(pool, dataBits, { checkBits = DEFAULT_CHECK_BITS, al
   return { tokens, text: formatMixed(tokens, dataBits.length, checkBits), totalBits: L, dataBits: dataBits.length, checkBits, writtenBits: pos };
 }
 export function formatMixed(tokens, dataLen, checkBits) {
-  return `M(${dataLen}+${checkBits}bit)` + tokens.map(t => t.type === 'kanji' ? t.char + t.colors.join('') : t.char + t.color).join(' ');
+  return `M(${dataLen}${checkBits ? '+' + checkBits : ''}bit)` + tokens.map(t => t.type === 'kanji' ? t.char + t.colors.join('') : t.char + t.color).join(' ');
 }
 export const isMixedText = (text) => /^\s*[Mm]\s*[(（]/.test(text);
 export function parseMixed(pool, text) {

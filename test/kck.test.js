@@ -21,7 +21,7 @@ test('round trip random lengths', () => {
   }
 });
 test('256-bit hex round trip, whitespace tolerant', () => {
-  const hex = 'f'.repeat(64), e = K.encodeHex(pool, hex);
+  const hex = 'f'.repeat(64), e = K.encodeHex(pool, hex, { checkBits: 12 });
   assert.match(e.text, /^\(256\+12bit\)/);
   assert.equal(K.decodeText(pool, e.text.replace(/(.{5})/g, '$1 \n')).candidates[0].hex, hex);
 });
@@ -67,9 +67,30 @@ test('color names 黒赤青緑 accepted in place of digits', () => {
   const e1 = K.encodeBits(pool, b);
   const t1 = e1.text.replace(/^(\([^)]*\))(.*)$/, (_, h, body) => h + K.parseText(pool, e1.text).tokens.map(t => t.char + [...t.spec].map(x => '黒赤青緑'[x]).join('')).join(''));
   assert.equal(K.decodeAny(pool, t1).candidates[0].hex, K.bitsToHex(b));
-  const e2 = K.encodeMixed(pool, b, { alphaPos: [2, 5], tail: 'alpha' });
+  const e2 = K.encodeMixed(pool, b, { alphaPos: [2, 5], tail: 'alpha', checkBits: 12 });
   const t2 = 'M(256+12bit)' + K.parseMixed(pool, e2.text).tokens.map(t => t.char + [...t.spec].map(x => '黒赤青緑'[x]).join('')).join(' ');
   assert.equal(K.decodeAny(pool, t2).candidates[0].hex, K.bitsToHex(b));
   const e3 = K.encodeAlpha(b);
   assert.equal(K.decodeAny(pool, e3.text.replace(/([A-Z2-79])([0-3])/g, (_, g, c) => g + '黒赤青緑'[c])).candidates[0].hex, K.bitsToHex(b));
+});
+
+test('default check bits = 0: header without +N, uncertainty lists all candidates', () => {
+  assert.equal(K.DEFAULT_CHECK_BITS, 0);
+  const b = K.randomBits(256), e = K.encodeMixed(pool, b, { alphaPos: [2] });
+  assert.match(e.text, /^M\(256bit\)/);
+  assert.equal(K.decodeAny(pool, e.text).candidates[0].hex, K.bitsToHex(b));
+  assert.equal(K.decodeAny(pool, e.text.replace('M(256bit)', 'M(256+0bit)')).candidates[0].hex, K.bitsToHex(b));
+  const parts = e.text.split(' '); parts[1] = parts[1][0] + '?';
+  const d = K.decodeAny(pool, parts.join(' '));
+  assert.equal(d.candidates.length, 4); assert.ok(d.candidates.some(x => x.hex === K.bitsToHex(b)));
+});
+test('check strokes can be marked ? and are enumerated too', () => {
+  const b = K.randomBits(256), e = K.encodeAlpha(b, { checkBits: 12 });
+  // last symbol (bits 266..272) contains check bits; mark its glyph and color unknown
+  const t = e.text.replace(/..$/, '??');
+  const d = K.decodeAlpha(t);
+  assert.equal(d.tried, 128); assert.ok(d.candidates.some(x => x.hex === K.bitsToHex(b)));
+  // miswritten check symbol (no ?) -> rejected
+  const g = e.text.at(-2), wrong = K.ALPHA[(K.ALPHA.indexOf(g) + 1) % 32];
+  assert.equal(K.decodeAlpha(e.text.slice(0, -2) + wrong + e.text.at(-1)).candidates.length, 0);
 });

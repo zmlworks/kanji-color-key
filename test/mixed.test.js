@@ -6,7 +6,7 @@ import { pool } from '../src/pool-node.js';
 test('mixed round trip, position sets x tails x lengths', () => {
   for (const ap of [[], [1], [3, 7], [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], [2, 4, 6, 8, 10, 12]])
     for (const tail of ['kanji', 'alpha']) for (const n of [64, 128, 256, 384, 512]) {
-      const b = K.randomBits(n), e = K.encodeMixed(pool, b, { alphaPos: ap, tail });
+      const b = K.randomBits(n), e = K.encodeMixed(pool, b, { alphaPos: ap, tail, checkBits: 12 });
       assert.ok(e.text.startsWith(`M(${n}+12bit)`));
       e.tokens.forEach((t, i) => { if (ap.includes(i + 1)) assert.equal(t.type, 'alpha'); });
       const d = K.decodeAny(pool, e.text);
@@ -24,7 +24,7 @@ test('alpha tail never ends with a partially used kanji', () => {
   }
 });
 test('mixed ? recovery and errors', () => {
-  const b = K.randomBits(256), e = K.encodeMixed(pool, b, { alphaPos: [2] });
+  const b = K.randomBits(256), e = K.encodeMixed(pool, b, { alphaPos: [2], checkBits: 12 });
   const parts = e.text.split(' ');
   parts[1] = parts[1][0] + '?'; parts[0] = parts[0].replace(/(\)\S)\d/, '$1?');
   const d = K.decodeMixed(pool, parts.join(' '));

@@ -18,12 +18,12 @@ test('alpha round trip for many lengths', () => {
   }
 });
 test('alpha 256 bit: 39 symbols, header', () => {
-  const e = K.encodeAlpha(K.hexToBits('ab'.repeat(32)));
+  const e = K.encodeAlpha(K.hexToBits('ab'.repeat(32)), { checkBits: 12 });
   assert.match(e.text, /^A\(256\+12bit\)/); assert.equal(e.tokens.length, 39);
   assert.ok(!K.isAlphaText(K.encodeHex(pool, 'ab'.repeat(32)).text));
 });
 test('alpha decode with unknown glyph and color filtered by check', () => {
-  const b = K.randomBits(256), e = K.encodeAlpha(b);
+  const b = K.randomBits(256), e = K.encodeAlpha(b, { checkBits: 12 });
   const body = e.text.replace(/^A\([^)]*\)/, '').replace(/ /g, '');
   const t = 'A(256+12bit)' + '??' + body.slice(2, 9) + '?' + body.slice(10);
   const d = K.decodeAlpha(t);
