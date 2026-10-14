@@ -3,8 +3,6 @@ import * as K from '../src/kck.js';
 import { pool } from '../src/pool-node.js';
 const argv = process.argv.slice(2);
 const alpha = argv.includes('--alpha');
-const pi = argv.indexOf('--phrase'), phrase = pi >= 0 ? argv.splice(pi, 2)[1] : undefined;
-const mt = argv.indexOf('--max-tail'), maxTail = mt >= 0 ? +argv.splice(mt, 2)[1] : Infinity;
 const grab = (n) => { const i = argv.indexOf(n); return i >= 0 ? argv.splice(i, 2)[1] : undefined; };
 const alphaPosArg = grab('--alpha-pos'), tailArg = grab('--tail'), bitsArg = grab('--bits');
 const mixed = alphaPosArg !== undefined || tailArg !== undefined;
@@ -20,13 +18,10 @@ const USAGE = `usage:
   kck decode "<text>"                   decode; supports ? (unknown color), (..) shifted block, [..] permuted block
   --alpha                               use alpha mode (32 glyphs 2345679ABCDEFGHIJKLMNOPQRSTVWXYZ x 4 colors = 7 bit/symbol)
                                         (decode/pretty auto-detect the A(...) header)
-  --phrase 国破山河在城春草木深        phrase mode: fixed kanji, bits in stroke colors, rest as alpha tail
-  --max-tail N                          (phrase) fail if more than N alpha tail symbols are needed
   --alpha-pos 3,7 --tail kanji|alpha    mixed mode: positions (1-based) that are alpha glyphs, others kanji;
                                         --tail alpha finishes with glyphs instead of a padded kanji
-  kck capacity <phrase>                 strokes / bits a phrase provides
   kck pretty "<text>"                   show stroke-by-stroke color names`;
-const enc = (b, o) => mixed ? K.encodeMixed(pool, b, { ...o, alphaPos, tail: tailArg ?? 'kanji' }) : phrase !== undefined ? K.encodePhrase(pool, phrase, b, { ...o, maxTail }) : alpha ? K.encodeAlpha(b, o) : K.encodeBits(pool, b, o);
+const enc = (b, o) => mixed ? K.encodeMixed(pool, b, { ...o, alphaPos, tail: tailArg ?? 'kanji' }) : alpha ? K.encodeAlpha(b, o) : K.encodeBits(pool, b, o);
 const show = (r) => { console.log(r.text); console.error(`# ${r.tokens.filter(t => t.type === 'kanji').length} kanji, ${r.tokens.filter(t => t.type === 'hex').length} hex, ${r.tokens.filter(t => t.type === 'alpha').length} alpha, ${r.totalBits} bits`); };
 const check = () => { const c = opt('--check'); return { checkBits: c === undefined ? K.DEFAULT_CHECK_BITS : +c }; };
 try {
@@ -42,12 +37,9 @@ try {
     console.error(`# ${r.tried} combinations tried, ${r.candidates.length} passed the ${r.checkBits}-bit check`);
     for (const c of r.candidates) console.log(c.hex + '\t' + c.text);
     process.exitCode = r.candidates.length === 1 ? 0 : 2;
-  } else if (cmd === 'capacity') {
-    const c = K.phraseCapacity(pool, args.join('')); console.log(`${c.chars.join('')}: ${c.strokes} strokes = ${c.bits} bit; for 256+12 bit needs ${Math.ceil(Math.max(0, 268 - c.bits) / 7)} alpha tail symbols`);
   } else if (cmd === 'pretty') {
     const txt = args.join(' ');
     if (K.isMixedText(txt)) { for (const t of K.parseMixed(pool, txt).tokens) console.log(t.char + '  ' + [...t.spec].map(c => K.COLORS[+c] ?? c).join(' ')); }
-    else if (K.isPhraseText(txt)) { for (const t of K.parsePhrase(pool, txt).tokens) console.log(t.char + '  ' + [...t.spec].map(c => K.COLORS[+c] ?? c).join(' ')); }
     else if (K.isAlphaText(txt)) { for (const t of K.parseAlpha(txt).tokens) console.log(t.char + '  ' + (K.COLORS[+t.spec] ?? t.spec)); }
     else for (const t of K.parseText(pool, txt).tokens)
       console.log(t.char + '  ' + [...t.spec].map(c => K.COLORS[+c] ?? c).join(' '));

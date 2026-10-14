@@ -2,40 +2,41 @@
 <html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>kanji-color-key — 4色の書き順で鍵を手書きする</title>
 <style>
-body{font-family:system-ui,"Noto Sans JP",sans-serif;max-width:980px;margin:0 auto;padding:16px;color:#222;background:#fafaf7}
-h1{font-size:1.4em;margin:.2em 0}textarea,input{width:100%;box-sizing:border-box;font:15px/1.4 ui-monospace,monospace;padding:6px}
+body{font-family:system-ui,"Noto Sans JP",sans-serif;max-width:1000px;margin:0 auto;padding:16px;color:#222;background:#fafaf7}
+h1{font-size:1.4em;margin:.2em 0}textarea,input[type=text],input[type=password]{width:100%;box-sizing:border-box;font:15px/1.4 ui-monospace,monospace;padding:6px}
 button{padding:6px 12px;margin:4px 4px 4px 0;cursor:pointer}fieldset{border:1px solid #ccc;border-radius:8px;margin:12px 0}
-.out{font:18px/1.6 ui-monospace,"Noto Sans JP",monospace;word-break:break-all;background:#fff;border:1px solid #ddd;padding:8px;border-radius:6px}
-.cards{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}.card{background:#fff;border:1px solid #ddd;border-radius:6px;padding:4px;text-align:center;font-size:12px}
-.card svg{width:120px;height:120px}#mixedBox .card svg{width:76px;height:76px}#mixedBox .card div{font-size:30px!important}.legend span{display:inline-block;margin-right:10px;font-weight:bold}
-.err{color:#b00}small{color:#666}.mono{font-family:ui-monospace,monospace;word-break:break-all}
+.out{font:17px/1.6 ui-monospace,"Noto Sans JP",monospace;word-break:break-all;background:#fff;border:1px solid #ddd;padding:8px;border-radius:6px}
+.cards{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:flex-start}
+.card{background:#fff;border:2px solid #ddd;border-radius:6px;padding:4px;text-align:center;font-size:12px;min-width:56px}
+.card svg{width:96px;height:96px}.glyph{font:bold 56px/96px ui-monospace,monospace;height:96px}
+.click{cursor:pointer}.click:hover{border-color:#f59e0b;background:#fffbeb;box-shadow:0 0 0 3px #fde68a}
+.card .pos{color:#999;font-size:10px}.card.alpha{border-color:#a5b4fc}
+.variants{display:flex;gap:10px;flex-wrap:wrap}.variant{border:1px dashed #999;border-radius:8px;padding:6px}
+.legend span{display:inline-block;margin-right:10px;font-weight:bold}.err{color:#b00}small{color:#666}.mono{font-family:ui-monospace,monospace;word-break:break-all}
 </style></head><body>
 <h1>kanji-color-key</h1>
-<p>256bit鍵などを「漢字(12bit)＋各画の色(2bit/画)」で手書き可能な形にします。<span class="legend">
+<p>256bit鍵などを「漢字(12bit＋各画の色2bit)」と「英数字32種(5bit＋色2bit)」の並びで手書き可能な形にします。<span class="legend">
 <span style="color:#111">0 黒</span><span style="color:#d62828">1 赤</span><span style="color:#1d4ed8">2 青</span><span style="color:#15803d">3 緑</span></span><br>
-<small>完全オフラインで動作します（外部通信なし）。ストロークデータ: KanjiVG (CC BY-SA 3.0)。</small></p>
-<fieldset><legend>エンコード</legend>
-モード: <label><input type="radio" name="mode" value="kanji" checked style="width:auto">漢字＋画の色 (12bit/字＋2bit/画)</label> <label><input type="radio" name="mode" value="alpha" style="width:auto">英数字32種＋色 (7bit/字, <code>2345679ABCDEFGHIJKLMNOPQRSTVWXYZ</code>)</label>
-<label><input type="radio" name="mode" value="phrase" style="width:auto">フレーズ (意味のある漢字を固定、画の色2bit/画＋英数字の尾)</label><br>
-<div id="phraseBox">フレーズ: <input id="phrase" value="国破山河在城春草木深" style="width:60%"> <span id="pSamples"></span><div id="pCap" class="mono"></div></div>
-<button id="bRand">ランダム256bit</button> 16進: <input id="hex" placeholder="16進データ (例: 256bit = 64桁)">
-または 2進: <input id="bin" placeholder="0101... (任意長)">
-パスフレーズ (hashモード, PBKDF2-SHA256 600000回): <input id="pass" type="password" placeholder="passphrase"> ソルト: <input id="salt" placeholder="(任意)">
-チェックビット数: <input id="chk" type="number" value="12" min="0" max="64" style="width:6em">
-<div><button id="bHex">16進をエンコード</button><button id="bBin">2進をエンコード</button><button id="bPass">パスフレーズから導出</button></div>
-<div id="encInfo" class="mono"></div><div id="encOut" class="out"></div><div id="cards" class="cards"></div>
+<small>完全オフラインで動作します（外部通信なし）。英数字: <code>2345679ABCDEFGHIJKLMNOPQRSTVWXYZ</code>（0,1,8,U を除外）。ストロークデータ: KanjiVG (CC BY-SA 3.0)。</small></p>
+<fieldset><legend>鍵</legend>
+<button id="bRand">🎲 振り直す（ランダム）</button>
+データビット数: <input id="bits" type="range" min="64" max="512" step="8" value="256" style="width:35%;vertical-align:middle"> <b id="bitsV">256</b> bit
+＋ チェック <input id="chk" type="number" value="12" min="0" max="64" style="width:4em"> bit<br>
+16進: <input id="hex" type="text" placeholder="16進データ"> 2進: <input id="bin" type="text" placeholder="0101...">
+パスフレーズ (PBKDF2-SHA256 600000回): <input id="pass" type="password" placeholder="passphrase"> ソルト: <input id="salt" type="text" placeholder="(任意)">
+<div><button id="bHex">16進を使う</button><button id="bBin">2進を使う</button><button id="bPass">パスフレーズから導出</button></div>
+<div id="keyInfo" class="mono"></div>
 </fieldset>
-<fieldset id="mixedBox"><legend>ミックス（漢字／英数字を位置ごとに選択）</legend>
-<div>英数字にする位置: <span id="mPos"></span> <small>（未チェック・13番目以降は漢字）</small></div>
-<div>データビット数: <input id="mBits" type="range" min="64" max="512" step="8" value="256" style="width:50%;vertical-align:middle"> <b id="mBitsV">256</b> bit ＋ チェック（上の「チェックビット数」）
-<button id="mRoll">🎲 振り直す</button></div>
-<div id="mHex" class="mono"></div>
-<div style="display:flex;gap:12px;flex-wrap:wrap"><div style="flex:1;min-width:300px"><b>(a) 末尾も漢字</b><div id="mInfoA" class="mono"></div><div id="mOutA" class="out"></div><div id="mCardsA" class="cards"></div></div>
-<div style="flex:1;min-width:300px"><b>(b) 末尾を英数字で</b><div id="mInfoB" class="mono"></div><div id="mOutB" class="out"></div><div id="mCardsB" class="cards"></div></div></div>
+<fieldset id="seqBox"><legend>エンコード結果</legend>
+<div><button id="bAllK">全部漢字</button><button id="bAllA">全部英数字</button>
+<small>👆 記号をクリックすると、その位置を 漢字⇄英数字 に切り替えます（それより後ろの位置は漢字に戻ります。鍵は変わりません）。</small></div>
+<div id="info" class="mono"></div>
+<div id="cards" class="cards"></div>
+<div id="err" class="err"></div>
 </fieldset>
 <fieldset><legend>デコード</legend>
-<small>記法: <code>?</code>=色不明, <code>(56)</code>=相対順序は保つが位置不明, <code>[56]</code>=順序入れ替えの可能性（漢字モード）。フレーズ(P)は画の色に ? () []、尾の英数字に ? 可。英数字モードは文字・色どちらにも <code>?</code> 可。候補を列挙しチェックコードで絞り込みます。</small>
-<textarea id="dec" rows="3" placeholder="(256+12bit)處23213313000圃...  または  A(256+12bit)F2D0A0Q1 ..."></textarea>
+<small>記法: <code>?</code>=色・英数字不明, <code>(56)</code>=相対順序は保つが位置不明, <code>[56]</code>=順序入れ替えの可能性（漢字の画）。候補を列挙しチェックコードで絞り込みます。<code>M(</code>・<code>(</code>・<code>A(</code> 形式に対応。</small>
+<textarea id="dec" rows="3" placeholder="M(256+12bit)處23213313000 圃1223203223 I1 ..."></textarea>
 <button id="bDec">デコード</button><div id="decOut" class="mono"></div>
 </fieldset>
 <p><small>MIT License © zmlworks. このページとリポジトリはAIアシスタント Grok Bot により自律的に運用されています。<a href="https://github.com/zmlworks/kanji-color-key">GitHub</a></small></p>
@@ -44,64 +45,59 @@ button{padding:6px 12px;margin:4px 4px 4px 0;cursor:pointer}fieldset{border:1px 
 const POOLDATA = /*__POOL__*/;
 const pool = makePool(POOLDATA.kanji, POOLDATA.strokes.map(s => s.length));
 const $ = id => document.getElementById(id);
+let key = randomBits(512), custom = null, alphaPos = new Set();
 function svgFor(idx, colors) {
   const ps = POOLDATA.strokes[idx];
   return `<svg viewBox="0 0 109 109" xmlns="http://www.w3.org/2000/svg">` + ps.map((d, i) => {
-    const c = colors[i] ?? 0, p = ps[i].match(/^M\s*([-\d.]+)[ ,]([-\d.]+)/);
+    const c = colors[i] ?? 0, p = d.match(/^M\s*([-\d.]+)[ ,]([-\d.]+)/);
     return `<path d="${d}" fill="none" stroke="${COLOR_CSS[c]}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>` +
       (p ? `<text x="${+p[1] - 3}" y="${+p[2] - 1}" font-size="7" fill="${COLOR_CSS[c]}">${i + 1}</text>` : '');
   }).join('') + `</svg>`;
 }
-function show(r, extra = '') {
-  $('encInfo').textContent = extra + `${r.totalBits}bit (データ${r.dataBits}+チェック${r.checkBits}) → 漢字${r.tokens.filter(t => t.type === 'kanji').length}字 / 英数字${r.tokens.filter(t => t.type === 'alpha').length} / 色付き画${r.tokens.reduce((a, t) => a + (t.type === 'kanji' ? t.colors.length : 0), 0)} / 16進${r.tokens.filter(t => t.type === 'hex').length}字`;
-  $('encOut').textContent = r.text;
-  $('cards').innerHTML = cardsHtml(r.tokens);
+function card(t, pos, clickable) {
+  const attr = clickable ? ` class="card click${t.type === 'alpha' ? ' alpha' : ''}" data-pos="${pos}" title="クリックで${t.type === 'kanji' ? '英数字' : '漢字'}に切替"` : ` class="card${t.type === 'alpha' ? ' alpha' : ''}"`;
+  const body = t.type === 'kanji' ? svgFor(t.index, t.colors) : `<div class="glyph" style="color:${COLOR_CSS[t.color]}">${t.char}</div>`;
+  return `<div${attr}><div class="pos">${pos}</div>${body}<br>${t.char}${t.type === 'kanji' ? t.colors.join('') : t.color}</div>`;
 }
-function cardsHtml(tokens) {
-  return tokens.map(t => t.type === 'kanji'
-    ? `<div class="card">${svgFor(t.index, t.colors)}<br>${t.char} ${t.colors.join('')}</div>`
-    : t.type === 'alpha' ? `<div class="card" style="min-width:56px"><div style="font:bold 44px ui-monospace,monospace;color:${COLOR_CSS[t.color]}">${t.char}</div>${t.char}${t.color}</div>`
-    : `<div class="card"><div style="font-size:64px;width:120px;color:${COLOR_CSS[t.color]}">${t.char}</div>${t.char}${t.color}</div>`).join('');
+const keyBits = () => custom ?? key.slice(0, +$('bits').value);
+const fmtInfo = r => `漢字${r.tokens.filter(t => t.type === 'kanji').length}・英数字${r.tokens.filter(t => t.type === 'alpha').length}・書く量${r.writtenBits}bit`;
+function render() {
+  $('err').textContent = '';
+  try {
+    const bits = keyBits(), o = { checkBits: +$('chk').value, alphaPos: [...alphaPos] };
+    $('bitsV').textContent = $('bits').value; $('keyInfo').textContent = `鍵 (${bits.length}bit) ${bitsToHex(bits)}`;
+    const A = encodeMixed(pool, bits, { ...o, tail: 'kanji' }), B = encodeMixed(pool, bits, { ...o, tail: 'alpha' });
+    let n = 0; while (n < A.tokens.length && n < B.tokens.length && A.tokens[n].type === B.tokens[n].type && A.tokens[n].char === B.tokens[n].char) n++;
+    const prefix = A.tokens.slice(0, n).map((t, i) => card(t, i + 1, true)).join('');
+    const va = A.tokens.slice(n), vb = B.tokens.slice(n);
+    $('info').innerHTML = `${A.totalBits}bit (データ${A.dataBits}+チェック${A.checkBits}) ／ 共通部分 ${n}記号`;
+    $('cards').innerHTML = prefix + (va.length || vb.length ? `<div class="variants">
+      <div class="variant"><b>最後を漢字で</b> <small>${fmtInfo(A)}</small><div class="cards">${va.map((t, i) => card(t, n + i + 1, false)).join('')}</div><div class="mono">${A.text}</div></div>
+      <div class="variant"><b>最後を英数字で</b> <small>${fmtInfo(B)}</small><div class="cards">${vb.map((t, i) => card(t, n + i + 1, false)).join('')}</div><div class="mono">${B.text}</div></div></div>` : `<div class="mono">${A.text}</div>`);
+  } catch (e) { $('err').textContent = e.message; }
 }
-$('mPos').innerHTML = Array.from({ length: 12 }, (_, i) => `<label style="margin-right:6px"><input type="checkbox" value="${i + 1}" style="width:auto">${i + 1}</label>`).join('');
-let mKey = randomBits(512);
-function renderMixed() {
-  const n = +$('mBits').value, bits = mKey.slice(0, n), ap = [...document.querySelectorAll('#mPos input:checked')].map(x => +x.value);
-  $('mBitsV').textContent = n; $('mHex').textContent = '鍵 ' + bitsToHex(bits);
-  for (const [tail, S] of [['kanji', 'A'], ['alpha', 'B']]) {
-    const r = encodeMixed(pool, bits, { checkBits: +$('chk').value, alphaPos: ap, tail });
-    $('mInfo' + S).textContent = `漢字${r.tokens.filter(t => t.type === 'kanji').length}字・英数字${r.tokens.filter(t => t.type === 'alpha').length}字・色付き画${r.tokens.reduce((a, t) => a + (t.type === 'kanji' ? t.colors.length : 0), 0)}／書く量${r.writtenBits}bit（必要${r.totalBits}）`;
-    $('mOut' + S).textContent = r.text; $('mCards' + S).innerHTML = cardsHtml(r.tokens);
-  }
-}
-$('mPos').onchange = renderMixed; $('mBits').oninput = renderMixed; $('chk').addEventListener('input', renderMixed);
-$('mRoll').onclick = () => { mKey = randomBits(512); renderMixed(); };
-renderMixed();
-const SAMPLES = ['国破山河在城春草木深', '春夏秋冬', '臨機応変', '東京駅前喫茶店'];
-$('pSamples').innerHTML = SAMPLES.map(p => `<button type="button" data-p="${p}">${p}</button>`).join('');
-$('pSamples').onclick = e => { if (e.target.dataset.p) { $('phrase').value = e.target.dataset.p; document.querySelector('input[value=phrase]').checked = true; updCap(); } };
-function updCap() {
-  try { const c = phraseCapacity(pool, $('phrase').value), need = 256 + +$('chk').value;
-    $('pCap').textContent = `${c.chars.length}字・${c.strokes}画 = ${c.bits}bit（256+${$('chk').value}bitには英数字の尾 ${Math.ceil(Math.max(0, need - c.bits) / 7)}字、尾なしなら${Math.ceil(need / 2)}画必要）`;
-  } catch (e) { $('pCap').innerHTML = `<span class="err">${e.message}</span>`; }
-}
-$('phrase').oninput = updCap; updCap();
-const enc = (bits, extra) => { try { const mode = document.querySelector('input[name=mode]:checked').value;
-  show((mode === 'phrase' ? encodePhrase(pool, $('phrase').value, bits, { checkBits: +$('chk').value }) : mode === 'alpha' ? encodeAlpha(bits, { checkBits: +$('chk').value }) : encodeBits(pool, bits, { checkBits: +$('chk').value })), extra); } catch (e) { $('encInfo').innerHTML = `<span class="err">${e.message}</span>`; } };
-$('bRand').onclick = () => { const b = randomBits(256); $('hex').value = bitsToHex(b); enc(b); };
-$('bHex').onclick = () => { try { enc(hexToBits($('hex').value)); } catch (e) { $('encInfo').textContent = e.message; } };
-$('bBin').onclick = () => { try { enc(parseBitString($('bin').value)); } catch (e) { $('encInfo').textContent = e.message; } };
-$('bPass').onclick = async () => { $('encInfo').textContent = '導出中…'; const k = await deriveKey($('pass').value, { salt: $('salt').value }); const b = bytesToBits(k); $('hex').value = bitsToHex(b); enc(b, '鍵 ' + bitsToHex(b) + '\n'); };
+$('cards').onclick = e => {
+  const c = e.target.closest('[data-pos]'); if (!c) return;
+  const k = +c.dataset.pos, wasAlpha = alphaPos.has(k);
+  alphaPos = new Set([...alphaPos].filter(p => p < k)); if (!wasAlpha) alphaPos.add(k);
+  render();
+};
+$('bAllK').onclick = () => { alphaPos = new Set(); render(); };
+$('bAllA').onclick = () => { alphaPos = new Set(Array.from({ length: 80 }, (_, i) => i + 1)); render(); };
+$('bRand').onclick = () => { key = randomBits(512); custom = null; alphaPos = new Set(); render(); };
+$('bits').oninput = () => { custom = null; render(); }; $('chk').oninput = render;
+const useBits = b => { custom = b; alphaPos = new Set(); render(); };
+$('bHex').onclick = () => { try { useBits(hexToBits($('hex').value)); } catch (e) { $('err').textContent = e.message; } };
+$('bBin').onclick = () => { try { useBits(parseBitString($('bin').value)); } catch (e) { $('err').textContent = e.message; } };
+$('bPass').onclick = async () => { $('keyInfo').textContent = '導出中…'; const k = await deriveKey($('pass').value, { salt: $('salt').value }); $('hex').value = bitsToHex(bytesToBits(k)); useBits(bytesToBits(k)); };
 $('bDec').onclick = () => {
   try { const r = decodeAny(pool, $('dec').value);
     $('decOut').innerHTML = `${r.tried}通り試行 → チェック通過 ${r.candidates.length}件<br>` + r.candidates.slice(0, 50).map(c => `<div>${c.hex}<br><small>${c.text}</small></div>`).join('');
   } catch (e) { $('decOut').innerHTML = `<span class="err">${e.message}</span>`; }
 };
-if (location.hash === '#mixed') { mKey = hexToBits('c2fb9f70272dae3adee45198b576b4873f5ad57ac41696bdfaa92e6de9923e14'.repeat(2)); for (const v of [3, 7]) document.querySelector(`#mPos input[value="${v}"]`).checked = true; renderMixed(); const f = document.querySelector('fieldset'); f.parentNode.insertBefore($('mixedBox'), f); }
-if (location.hash === '#phrase') { document.querySelector('input[value=phrase]').checked = true; const b = hexToBits('c2fb9f70272dae3adee45198b576b4873f5ad57ac41696bdfaa92e6de9923e14'); $('hex').value = bitsToHex(b); enc(b);
-  $('dec').value = $('encOut').textContent.replace(/^(P\(\d+\+\d+bit\)\S)\d/, '$1?'); $('bDec').onclick(); setTimeout(() => scrollTo(0, 0), 0); }
-if (location.hash === '#alpha') { document.querySelector('input[value=alpha]').checked = true; const b = hexToBits('00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'); $('hex').value = bitsToHex(b); enc(b);
-  $('dec').value = $('encOut').textContent.replace(/^(A\(\d+\+\d+bit\)\S)\d/, '$1?'); $('bDec').onclick(); }
-if (location.hash === '#demo') { const b = hexToBits('00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff'); $('hex').value = bitsToHex(b); enc(b);
-  $('dec').value = $('encOut').textContent.replace(/^(\(\d+\+\d+bit\)\S)(\d)(\d)/, '$1[$3$2]'); $('bDec').onclick(); }
+if (location.hash === '#demo') {
+  key = hexToBits('c2fb9f70272dae3adee45198b576b4873f5ad57ac41696bdfaa92e6de9923e14'.repeat(2));
+  alphaPos = new Set([3, 6]); render();
+  const t = document.querySelector('.variant .mono').textContent; $('dec').value = t.replace(/^(M\(\d+\+\d+bit\)\S)\d/, '$1?'); $('bDec').onclick();
+} else render();
 </script></body></html>
