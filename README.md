@@ -56,6 +56,21 @@ A(256+12bit)2030C0B3 9261D2S2 H3R26392 O1V391Q1 X3I3R021 4140S2K0 D2P1M2Y0 K0S2O
 
 ![alpha mode](docs/screenshot-alpha.png)
 
+## フレーズモード（phrase）
+
+*Phrase mode: you choose meaningful kanji (no entropy in their identity); key bits go into stroke colors (2 bit/stroke) in writing order, and the rest into an alpha-32 tail (7 bit/symbol).*
+
+- フレーズの漢字はすべてプール内である必要があります（無い字はエラー）。
+- ビットは書き順どおり各画の色へ（2 bit/画）、足りない分は `/` の後に英数字モードと同じ「文字＋色」(7 bit) で続けます。余った画は黒(0)。
+- ヘッダ `P(データ+チェックbit)`、チェックは既定 12 bit。デコードは画の色に `?` `()` `[]`、尾に `?` 可。
+- 256+12 bit を尾なしで収めるには **134 画** 必要。例: `国破山河在城春草木深`（77画=154bit）→ 尾 17 字。
+
+```
+P(256+12bit)国30023323破2133130002山130河23122320在322313城232101101春212023111草312231020木1303深33112231111/X1K043C1 O3Q3O1C0 Q0V1X0S0 K3R1C3O3 20
+```
+
+![phrase mode](docs/screenshot-phrase.png)
+
 ## 使い方
 ```sh
 node bin/kck.js random                     # ランダム256bit
@@ -65,6 +80,8 @@ node bin/kck.js hash "passphrase" --salt me
 node bin/kck.js decode "(256+12bit)唖[10]02020303施..."
 node bin/kck.js random --alpha              # 英数字モード（encode/encode-bits/hash でも --alpha）
 node bin/kck.js decode "A(256+12bit)2030C0B3 ..."   # ヘッダでモード自動判別
+node bin/kck.js capacity 国破山河在城春草木深  # 画数と容量
+node bin/kck.js random --phrase 国破山河在城春草木深 [--max-tail 0]
 node --test test/
 node tools/build-web.js                    # docs/index.html を再生成
 ```

@@ -278,4 +278,98 @@ export function decodeAlpha(text, { maxCandidates = 2_000_000 } = {}) {
 }
 // Dispatch on header: "A(" = alpha mode, "(" = kanji mode.
 export const isAlphaText = (text) => /^\s*[Aa]\s*[(（]/.test(text);
-export const decodeAny = (pool, text, o) => isAlphaText(text) ? decodeAlpha(text, o) : decodeText(pool, text, o);
+export const decodeAny = (pool, text, o) => isAlphaText(text) ? decodeAlpha(text, o) : isPhraseText(text) ? decodePhrase(pool, text, o) : decodeText(pool, text, o);
+
+// ---------- phrase mode: fixed, meaningful kanji; entropy only in stroke colors, then alpha-32 tail ----------
+// Text: "P(256+12bit)" + for each phrase kanji: <kanji><color digit per stroke> + "/" + alpha pairs (as in alpha mode).
+// Strokes beyond the payload are colored 0 (black). Tail length = ceil(max(0, total - 2*strokes) / 7).
+export function phraseCapacity(pool, phrase) {
+  const chars = [...phrase.replace(/\s+/g, '').normalize('NFC')];
+  if (!chars.length) throw new Error('empty phrase');
+  const bad = chars.filter(c => !pool.index.has(c));
+  if (bad.length) throw new Error(`not in the kanji pool: ${[...new Set(bad)].join('')}`);
+  const strokes = chars.reduce((a, c) => a + pool.counts[pool.index.get(c)], 0);
+  return { chars, strokes, bits: 2 * strokes };
+}
+export function encodePhrase(pool, phrase, dataBits, { checkBits = DEFAULT_CHECK_BITS, maxTail = Infinity } = {}) {
+  const { chars, bits: cap } = phraseCapacity(pool, phrase);
+  const bits = dataBits.concat(checkCode(dataBits, checkBits)), L = bits.length, tokens = [];
+  const tailN = Math.ceil(Math.max(0, L - cap) / 7);
+  if (tailN > maxTail) throw new Error(`phrase capacity ${cap} bit is insufficient for ${L} bit (needs ${tailN} alpha symbols, max ${maxTail}); use ${Math.ceil((L - cap) / 2)} more strokes`);
+  let pos = 0;
+  for (const c of chars) {
+    const index = pool.index.get(c), colors = [];
+    for (let s = 0; s < pool.counts[index]; s++) { colors.push(readInt(bits, pos, 2)); pos += 2; }
+    tokens.push({ type: 'kanji', char: c, index, colors });
+  }
+  for (let k = 0; k < tailN; k++, pos += 7) tokens.push({ type: 'alpha', char: ALPHA[readInt(bits, pos, 5)], color: readInt(bits, pos + 5, 2) });
+  return { tokens, text: formatPhrase(tokens, dataBits.length, checkBits), totalBits: L, dataBits: dataBits.length, checkBits, capacity: cap, tail: tailN };
+}
+export function formatPhrase(tokens, dataLen, checkBits) {
+  const k = tokens.filter(t => t.type === 'kanji'), a = tokens.filter(t => t.type === 'alpha');
+  return `P(${dataLen}+${checkBits}bit)` + k.map(t => t.char + t.colors.join('')).join('') +
+    (a.length ? '/' + a.map((t, i) => (i && i % 4 === 0 ? ' ' : '') + t.char + t.color).join('') : '');
+}
+export const isPhraseText = (text) => /^\s*[Pp]\s*[(（]/.test(text);
+export function parsePhrase(pool, text) {
+  const t = text.replace(/\s+/g, '').normalize('NFC');
+  const m = /^[Pp][(（](\d+)(?:\+(\d+))?bit[)）]/i.exec(t);
+  if (!m) throw new Error('missing header like P(256+12bit)');
+  const dataBits = +m[1], checkBits = m[2] === undefined ? DEFAULT_CHECK_BITS : +m[2];
+  const chars = [...t.slice(m[0].length)], tokens = [];
+  let i = 0, cap = 0;
+  while (i < chars.length && chars[i] !== '/' && !/[0-9A-Za-z?]/.test(chars[i])) {
+    const c = chars[i++];
+    if (!pool.index.has(c)) throw new Error(`"${c}" is not in the kanji pool`);
+    const index = pool.index.get(c), need = pool.counts[index];
+    let spec = '', n = 0;
+    while (i < chars.length) {
+      const d = chars[i];
+      if (n === need && !')]'.includes(d)) break;
+      if (/[0-3?]/.test(d)) n++; else if (!'()[]'.includes(d)) break;
+      spec += d; i++;
+    }
+    if (n !== need) throw new Error(`"${c}" needs ${need} colors, got ${n}`);
+    tokens.push({ type: 'kanji', char: c, index, spec, options: expandColorSpec(spec) }); cap += 2 * need;
+  }
+  if (!tokens.length) throw new Error('no phrase kanji');
+  if (chars[i] === '/') i++;
+  const tail = chars.slice(i).join('').toUpperCase(), tailN = Math.ceil(Math.max(0, dataBits + checkBits - cap) / 7);
+  if (tail.length !== 2 * tailN) throw new Error(`expected ${tailN} alpha symbols after the phrase, got ${tail.length / 2}`);
+  for (let k = 0; k < tailN; k++) {
+    const g = tail[2 * k], c = tail[2 * k + 1];
+    if (g !== '?' && !ALPHA.includes(g)) throw new Error(`"${g}" is not in the alpha set`);
+    if (!/[0-3?]/.test(c)) throw new Error(`bad color "${c}"`);
+    const gs = g === '?' ? [...Array(32).keys()] : [ALPHA.indexOf(g)], cs = c === '?' ? [0, 1, 2, 3] : [+c];
+    tokens.push({ type: 'alpha', char: g, spec: c, options: gs.flatMap(a => cs.map(b => a * 4 + b)) });
+  }
+  return { dataBits, checkBits, tokens, capacity: cap };
+}
+export function decodePhrase(pool, text, { maxCandidates = 2_000_000 } = {}) {
+  const p = parsePhrase(pool, text), L = p.dataBits + p.checkBits;
+  const total = p.tokens.reduce((a, t) => a * t.options.length, 1);
+  if (total > maxCandidates) throw new Error(`too many combinations (${total}); narrow the uncertainty`);
+  const choice = new Array(p.tokens.length).fill(0), results = []; let tried = 0;
+  for (;;) {
+    tried++;
+    const bits = [];
+    p.tokens.forEach((t, k) => {
+      const o = t.options[choice[k]];
+      if (t.type === 'kanji') for (const c of o) bits.push(c >> 1, c & 1);
+      else for (let b = 6; b >= 0; b--) bits.push((o >> b) & 1);
+    });
+    if (bits.slice(L).every(b => b === 0)) {
+      const data = bits.slice(0, p.dataBits), chk = bits.slice(p.dataBits, L);
+      if (checkCode(data, p.checkBits).every((b, j) => b === chk[j])) {
+        const tokens = p.tokens.map((t, k) => t.type === 'kanji'
+          ? { type: 'kanji', char: t.char, index: t.index, colors: t.options[choice[k]] }
+          : { type: 'alpha', char: ALPHA[t.options[choice[k]] >> 2], color: t.options[choice[k]] & 3 });
+        results.push({ bits: data, hex: bitsToHex(data), text: formatPhrase(tokens, p.dataBits, p.checkBits), tokens });
+      }
+    }
+    let k = 0;
+    while (k < choice.length && ++choice[k] === p.tokens[k].options.length) choice[k++] = 0;
+    if (k === choice.length) break;
+  }
+  return { candidates: results, tried, total, dataBits: p.dataBits, checkBits: p.checkBits, capacity: p.capacity };
+}
