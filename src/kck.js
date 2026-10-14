@@ -3,6 +3,8 @@
 export const COLORS = ['黒', '赤', '青', '緑'];
 export const COLOR_CSS = ['#111111', '#d62828', '#1d4ed8', '#15803d'];
 export const DEFAULT_CHECK_BITS = 12;
+// Color names accepted in place of digits when decoding (黒0 赤1 青2 緑3).
+const CNAME = { '黒': '0', '赤': '1', '青': '2', '緑': '3' };
 const HEX = '0123456789abcdef';
 
 // ---------- SHA-256 (small sync implementation, used for the check code) ----------
@@ -162,6 +164,7 @@ export function parseText(pool, text) {
     }
     let spec = '', n = 0;
     while (i < chars.length) {
+      if (n < need && CNAME[chars[i]]) chars[i] = CNAME[chars[i]];
       const d = chars[i];
       if (n === need && !')]'.includes(d)) break;
       if (/[0-3?]/.test(d)) n++; else if (!'()[]'.includes(d)) break;
@@ -238,7 +241,7 @@ export function formatAlpha(tokens, dataLen, checkBits) {
 }
 // Uncertainty: '?' as glyph (any of 32) or as color (any of 4).
 export function parseAlpha(text) {
-  const t = text.replace(/\s+/g, '').toUpperCase();
+  const t = text.replace(/\s+/g, '').replace(/[黒赤青緑]/g, c => CNAME[c]).toUpperCase();
   const m = /^A[(（](\d+)(?:\+(\d+))?BIT[)）]/.exec(t);
   if (!m) throw new Error('missing header like A(256+12bit)');
   const dataBits = +m[1], checkBits = m[2] === undefined ? DEFAULT_CHECK_BITS : +m[2];
@@ -317,7 +320,7 @@ export function parseMixed(pool, text) {
   while (i < chars.length && budget > 0) {
     const c = chars[i++];
     if (/[0-9A-Za-z?]/.test(c)) {
-      const g = c.toUpperCase(), col = chars[i++];
+      const g = c.toUpperCase(), col = CNAME[chars[i]] ?? chars[i]; i++;
       if (g !== '?' && !ALPHA.includes(g)) throw new Error(`"${g}" is not in the alpha set (0, 1, 8, U are excluded)`);
       if (!col || !/[0-3?]/.test(col)) throw new Error(`bad color "${col ?? ''}" after "${g}"`);
       const gs = g === '?' ? [...Array(32).keys()] : [ALPHA.indexOf(g)], cs = col === '?' ? [0, 1, 2, 3] : [+col];
@@ -327,6 +330,7 @@ export function parseMixed(pool, text) {
       const index = pool.index.get(c), need = pool.counts[index];
       let spec = '', n = 0;
       while (i < chars.length) {
+        if (n < need && CNAME[chars[i]]) chars[i] = CNAME[chars[i]];
         const d = chars[i];
         if (n === need && !')]'.includes(d)) break;
         if (/[0-3?]/.test(d)) n++; else if (!'()[]'.includes(d)) break;

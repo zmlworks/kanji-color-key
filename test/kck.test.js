@@ -62,3 +62,14 @@ test('hash mode is deterministic', async () => {
   const c = await K.deriveKey('correct horse', { iterations: 1000, salt: 'x' });
   assert.deepEqual(a, b); assert.notDeepEqual(a, c); assert.equal(a.length, 32);
 });
+test('color names 黒赤青緑 accepted in place of digits', () => {
+  const b = K.randomBits(256);
+  const e1 = K.encodeBits(pool, b);
+  const t1 = e1.text.replace(/^(\([^)]*\))(.*)$/, (_, h, body) => h + K.parseText(pool, e1.text).tokens.map(t => t.char + [...t.spec].map(x => '黒赤青緑'[x]).join('')).join(''));
+  assert.equal(K.decodeAny(pool, t1).candidates[0].hex, K.bitsToHex(b));
+  const e2 = K.encodeMixed(pool, b, { alphaPos: [2, 5], tail: 'alpha' });
+  const t2 = 'M(256+12bit)' + K.parseMixed(pool, e2.text).tokens.map(t => t.char + [...t.spec].map(x => '黒赤青緑'[x]).join('')).join(' ');
+  assert.equal(K.decodeAny(pool, t2).candidates[0].hex, K.bitsToHex(b));
+  const e3 = K.encodeAlpha(b);
+  assert.equal(K.decodeAny(pool, e3.text.replace(/([A-Z2-79])([0-3])/g, (_, g, c) => g + '黒赤青緑'[c])).candidates[0].hex, K.bitsToHex(b));
+});

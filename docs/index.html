@@ -12,12 +12,15 @@ button{padding:6px 12px;margin:4px 4px 4px 0;cursor:pointer}fieldset{border:1px 
 .click{cursor:pointer}.click:hover{border-color:#f59e0b;background:#fffbeb;box-shadow:0 0 0 3px #fde68a}
 .card .pos{color:#999;font-size:10px}.card.alpha{border-color:#a5b4fc}
 .variants{display:flex;gap:10px;flex-wrap:wrap}.variant{border:1px dashed #999;border-radius:8px;padding:6px}
-.legend span{display:inline-block;margin-right:10px;font-weight:bold}.err{color:#b00}small{color:#666}.mono{font-family:ui-monospace,monospace;word-break:break-all}
+.intro{margin:.3em 0;padding-left:1.2em;line-height:1.6}.cn{font-weight:bold;letter-spacing:1px;font-size:13px;max-width:140px;word-break:break-all}.sc{color:#555;font-size:11px}.legend span{display:inline-block;margin-right:10px;font-weight:bold}.err{color:#b00}small{color:#666}.mono{font-family:ui-monospace,monospace;word-break:break-all}
 </style></head><body>
 <h1>kanji-color-key</h1>
-<p>256bit鍵などを「漢字(12bit＋各画の色2bit)」と「英数字32種(5bit＋色2bit)」の並びで手書き可能な形にします。<span class="legend">
-<span style="color:#111">0 黒</span><span style="color:#d62828">1 赤</span><span style="color:#1d4ed8">2 青</span><span style="color:#15803d">3 緑</span></span><br>
-<small>完全オフラインで動作します（外部通信なし）。英数字: <code>2345679ABCDEFGHIJKLMNOPQRSTVWXYZ</code>（0,1,8,U を除外）。ストロークデータ: KanjiVG (CC BY-SA 3.0)。</small></p>
+<ul class="intro">
+<li>暗号化の最終的な鍵としてよく使われる 256 bit 乱数を一画ごとに色のついた約9文字の漢字に直します</li>
+<li>余剰bitが発生してもチェックになる利点があります</li>
+<li>見本の色は目安であり下に表示された色順を見てご自身の書き順で書かれることを想定しています（ある程度の揺らぎは試行できるため）</li>
+</ul>
+<p class="legend">色: <span style="color:#111">黒</span><span style="color:#d62828">赤</span><span style="color:#1d4ed8">青</span><span style="color:#15803d">緑</span></p>
 <fieldset><legend>鍵</legend>
 <button id="bRand">🎲 振り直す（ランダム）</button>
 データビット数: <input id="bits" type="range" min="64" max="512" step="8" value="256" style="width:35%;vertical-align:middle"> <b id="bitsV">256</b> bit
@@ -35,17 +38,19 @@ button{padding:6px 12px;margin:4px 4px 4px 0;cursor:pointer}fieldset{border:1px 
 <div id="err" class="err"></div>
 </fieldset>
 <fieldset><legend>デコード</legend>
-<small>記法: <code>?</code>=色・英数字不明, <code>(56)</code>=相対順序は保つが位置不明, <code>[56]</code>=順序入れ替えの可能性（漢字の画）。候補を列挙しチェックコードで絞り込みます。<code>M(</code>・<code>(</code>・<code>A(</code> 形式に対応。</small>
+<small>色は 0123 でも 黒赤青緑 でも入力可。記法: <code>?</code>=色・英数字不明, <code>(56)</code>=相対順序は保つが位置不明, <code>[56]</code>=順序入れ替えの可能性（漢字の画）。候補を列挙しチェックコードで絞り込みます。<code>M(</code>・<code>(</code>・<code>A(</code> 形式に対応。</small>
 <textarea id="dec" rows="3" placeholder="M(256+12bit)處23213313000 圃1223203223 I1 ..."></textarea>
 <button id="bDec">デコード</button><div id="decOut" class="mono"></div>
 </fieldset>
-<p><small>MIT License © zmlworks. このページとリポジトリはAIアシスタント Grok Bot により自律的に運用されています。<a href="https://github.com/zmlworks/kanji-color-key">GitHub</a></small></p>
+<p><small>完全オフラインで動作します（外部通信なし）。英数字: <code>2345679ABCDEFGHIJKLMNOPQRSTVWXYZ</code>（0,1,8,U を除外）。ストロークデータ: <a href="https://kanjivg.tagaini.net/">KanjiVG</a> (CC BY-SA 3.0)。<br>MIT License © zmlworks. このページとリポジトリはAIアシスタント Grok Bot により自律的に運用されています。<a href="https://github.com/zmlworks/kanji-color-key">GitHub</a></small></p>
 <script>
 // kanji-color-key core module (browser + Node, no dependencies).
 // A pool is { kanji: string of 4096 chars, counts: number[] (stroke counts in KanjiVG order) }.
 const COLORS = ['黒', '赤', '青', '緑'];
 const COLOR_CSS = ['#111111', '#d62828', '#1d4ed8', '#15803d'];
 const DEFAULT_CHECK_BITS = 12;
+// Color names accepted in place of digits when decoding (黒0 赤1 青2 緑3).
+const CNAME = { '黒': '0', '赤': '1', '青': '2', '緑': '3' };
 const HEX = '0123456789abcdef';
 
 // ---------- SHA-256 (small sync implementation, used for the check code) ----------
@@ -205,6 +210,7 @@ function parseText(pool, text) {
     }
     let spec = '', n = 0;
     while (i < chars.length) {
+      if (n < need && CNAME[chars[i]]) chars[i] = CNAME[chars[i]];
       const d = chars[i];
       if (n === need && !')]'.includes(d)) break;
       if (/[0-3?]/.test(d)) n++; else if (!'()[]'.includes(d)) break;
@@ -281,7 +287,7 @@ function formatAlpha(tokens, dataLen, checkBits) {
 }
 // Uncertainty: '?' as glyph (any of 32) or as color (any of 4).
 function parseAlpha(text) {
-  const t = text.replace(/\s+/g, '').toUpperCase();
+  const t = text.replace(/\s+/g, '').replace(/[黒赤青緑]/g, c => CNAME[c]).toUpperCase();
   const m = /^A[(（](\d+)(?:\+(\d+))?BIT[)）]/.exec(t);
   if (!m) throw new Error('missing header like A(256+12bit)');
   const dataBits = +m[1], checkBits = m[2] === undefined ? DEFAULT_CHECK_BITS : +m[2];
@@ -360,7 +366,7 @@ function parseMixed(pool, text) {
   while (i < chars.length && budget > 0) {
     const c = chars[i++];
     if (/[0-9A-Za-z?]/.test(c)) {
-      const g = c.toUpperCase(), col = chars[i++];
+      const g = c.toUpperCase(), col = CNAME[chars[i]] ?? chars[i]; i++;
       if (g !== '?' && !ALPHA.includes(g)) throw new Error(`"${g}" is not in the alpha set (0, 1, 8, U are excluded)`);
       if (!col || !/[0-3?]/.test(col)) throw new Error(`bad color "${col ?? ''}" after "${g}"`);
       const gs = g === '?' ? [...Array(32).keys()] : [ALPHA.indexOf(g)], cs = col === '?' ? [0, 1, 2, 3] : [+col];
@@ -370,6 +376,7 @@ function parseMixed(pool, text) {
       const index = pool.index.get(c), need = pool.counts[index];
       let spec = '', n = 0;
       while (i < chars.length) {
+        if (n < need && CNAME[chars[i]]) chars[i] = CNAME[chars[i]];
         const d = chars[i];
         if (n === need && !')]'.includes(d)) break;
         if (/[0-3?]/.test(d)) n++; else if (!'()[]'.includes(d)) break;
@@ -427,7 +434,9 @@ function svgFor(idx, colors) {
 function card(t, pos, clickable) {
   const attr = clickable ? ` class="card click${t.type === 'alpha' ? ' alpha' : ''}" data-pos="${pos}" title="クリックで${t.type === 'kanji' ? '英数字' : '漢字'}に切替"` : ` class="card${t.type === 'alpha' ? ' alpha' : ''}"`;
   const body = t.type === 'kanji' ? svgFor(t.index, t.colors) : `<div class="glyph" style="color:${COLOR_CSS[t.color]}">${t.char}</div>`;
-  return `<div${attr}><div class="pos">${pos}</div>${body}<br>${t.char}${t.type === 'kanji' ? t.colors.join('') : t.color}</div>`;
+  const cols = t.type === 'kanji' ? t.colors : [t.color];
+  const names = cols.map(c => `<span style="color:${COLOR_CSS[c]}">${COLORS[c]}</span>`).join('');
+  return `<div${attr}><div class="pos">#${pos}${t.type === 'kanji' ? ` · <span class="sc">${t.colors.length}画</span>` : ''}</div>${body}<div class="cn">${names}</div></div>`;
 }
 const keyBits = () => custom ?? key.slice(0, +$('bits').value);
 const fmtInfo = r => `漢字${r.tokens.filter(t => t.type === 'kanji').length}・英数字${r.tokens.filter(t => t.type === 'alpha').length}・書く量${r.writtenBits}bit`;
@@ -435,7 +444,7 @@ function render() {
   $('err').textContent = '';
   try {
     const bits = keyBits(), o = { checkBits: +$('chk').value, alphaPos: [...alphaPos] };
-    $('bitsV').textContent = $('bits').value; $('keyInfo').textContent = `鍵 (${bits.length}bit) ${bitsToHex(bits)}`;
+    $('bitsV').textContent = custom ? `${bits.length}（入力値）` : $('bits').value; $('keyInfo').textContent = `鍵 (${bits.length}bit) ${bitsToHex(bits)}`;
     const A = encodeMixed(pool, bits, { ...o, tail: 'kanji' }), B = encodeMixed(pool, bits, { ...o, tail: 'alpha' });
     let n = 0; while (n < A.tokens.length && n < B.tokens.length && A.tokens[n].type === B.tokens[n].type && A.tokens[n].char === B.tokens[n].char) n++;
     const prefix = A.tokens.slice(0, n).map((t, i) => card(t, i + 1, true)).join('');
@@ -454,8 +463,8 @@ $('cards').onclick = e => {
 };
 $('bAllK').onclick = () => { alphaPos = new Set(); render(); };
 $('bAllA').onclick = () => { alphaPos = new Set(Array.from({ length: 80 }, (_, i) => i + 1)); render(); };
-$('bRand').onclick = () => { key = randomBits(512); custom = null; alphaPos = new Set(); render(); };
-$('bits').oninput = () => { custom = null; render(); }; $('chk').oninput = render;
+$('bRand').onclick = () => { key = randomBits(512); custom = null; if (!$('bits').dataset.touched) $('bits').value = 256; alphaPos = new Set(); render(); };
+$('bits').oninput = () => { $('bits').dataset.touched = 1; custom = null; render(); }; $('chk').oninput = render;
 const useBits = b => { custom = b; alphaPos = new Set(); render(); };
 $('bHex').onclick = () => { try { useBits(hexToBits($('hex').value)); } catch (e) { $('err').textContent = e.message; } };
 $('bBin').onclick = () => { try { useBits(parseBitString($('bin').value)); } catch (e) { $('err').textContent = e.message; } };
