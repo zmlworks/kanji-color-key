@@ -1,27 +1,45 @@
 <!doctype html>
-<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="ja" data-theme="auto"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>kanji-color-key — 4色の書き順で鍵を手書きする</title>
+<meta name="color-scheme" content="light dark">
+<link rel="icon" type="image/png" sizes="64x64" href="/*__FAVICON__*/">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<script>try { const t = localStorage.getItem('kck-theme'); if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t; } catch (e) {}</script>
 <style>
-body{font-family:system-ui,"Noto Sans JP",sans-serif;max-width:1000px;margin:0 auto;padding:16px;color:#222;background:#fafaf7}
-h1{font-size:1.4em;margin:.2em 0}textarea,input[type=text],input[type=password]{width:100%;box-sizing:border-box;font:15px/1.4 ui-monospace,monospace;padding:6px}
-button{padding:6px 12px;margin:4px 4px 4px 0;cursor:pointer}fieldset{border:1px solid #ccc;border-radius:8px;margin:12px 0}
-.out{font:17px/1.6 ui-monospace,"Noto Sans JP",monospace;word-break:break-all;background:#fff;border:1px solid #ddd;padding:8px;border-radius:6px}
+:root{--bg:#fafaf7;--fg:#222;--dim:#666;--dim2:#999;--card:#fff;--line:#ddd;--field:#fff;--hl:#fffbeb;--hlb:#f59e0b;--hls:#fde68a;--alpha:#a5b4fc;--kana:#f9a8d4;--err:#b00;--accent:#1d4ed8;
+  --k0:#111111;--k1:#d62828;--k2:#1d4ed8;--k3:#15803d;color-scheme:light}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#15171c;--fg:#e8e6df;--dim:#a3a7b0;--dim2:#7d828c;--card:#1f232b;--line:#3a3f4a;--field:#111318;--hl:#2b2618;--hlb:#f59e0b;--hls:#7c5b12;--alpha:#6371c9;--kana:#b05583;--err:#ff7b7b;--accent:#6c96ff;
+  --k0:#f1eee4;--k1:#e03a3a;--k2:#4a78f0;--k3:#22a55a;color-scheme:dark}}
+:root[data-theme=dark]{--bg:#15171c;--fg:#e8e6df;--dim:#a3a7b0;--dim2:#7d828c;--card:#1f232b;--line:#3a3f4a;--field:#111318;--hl:#2b2618;--hlb:#f59e0b;--hls:#7c5b12;--alpha:#6371c9;--kana:#b05583;--err:#ff7b7b;--accent:#6c96ff;
+  --k0:#f1eee4;--k1:#e03a3a;--k2:#4a78f0;--k3:#22a55a;color-scheme:dark}
+body{font-family:system-ui,"Noto Sans JP",sans-serif;max-width:1000px;margin:0 auto;padding:16px;color:var(--fg);background:var(--bg)}
+a{color:var(--accent)}
+h1{font-size:1.4em;margin:.2em 0;display:flex;align-items:center;gap:8px}h1 img{width:32px;height:32px}h1 .sp{flex:1}
+textarea,input[type=text],input[type=password]{width:100%;box-sizing:border-box;font:15px/1.4 ui-monospace,monospace;padding:6px;background:var(--field);color:var(--fg);border:1px solid var(--line);border-radius:4px}
+input[type=number]{background:var(--field);color:var(--fg);border:1px solid var(--line)}
+button{padding:6px 12px;margin:4px 4px 4px 0;cursor:pointer}fieldset{border:1px solid var(--line);border-radius:8px;margin:12px 0}
+#bTheme{font-size:13px;font-weight:normal}
+.out{font:17px/1.6 ui-monospace,"Noto Sans JP",monospace;word-break:break-all;background:var(--card);border:1px solid var(--line);padding:8px;border-radius:6px}
 .cards{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px;align-items:flex-start}
-.card{background:#fff;border:2px solid #ddd;border-radius:6px;padding:4px;text-align:center;font-size:12px;min-width:56px}
-.card svg{width:96px;height:96px}.glyph{font:bold 56px/96px ui-monospace,monospace;height:96px}
-.click{cursor:pointer}.click:hover{border-color:#f59e0b;background:#fffbeb;box-shadow:0 0 0 3px #fde68a}
-.card .pos{color:#999;font-size:10px}.card.alpha{border-color:#a5b4fc}
-.variants{display:flex;gap:10px;flex-wrap:wrap}.variant{border:1px dashed #999;border-radius:8px;padding:6px}
-.explain{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px 14px;line-height:1.7;margin:12px 0}.explain h3{font-size:1.05em;margin:1em 0 .3em;border-left:4px solid #1d4ed8;padding-left:6px}.byai{color:#555;font-size:13px}.intro{margin:.3em 0;padding-left:1.2em;line-height:1.6}.cn{font-weight:bold;letter-spacing:1px;font-size:13px;max-width:140px;word-break:break-all}.sc{color:#555;font-size:11px}.legend span{display:inline-block;margin-right:10px;font-weight:bold}.err{color:#b00}small{color:#666}.mono{font-family:ui-monospace,monospace;word-break:break-all}
+.card{background:var(--card);border:2px solid var(--line);border-radius:6px;padding:4px;text-align:center;font-size:12px;min-width:56px}
+.card svg{width:96px;height:96px}.card.kana svg,.card.kanaGlyph svg{width:72px;height:72px;margin:12px 0}.glyph{font:bold 56px/96px ui-monospace,monospace;height:96px}
+.click{cursor:pointer}.click:hover{border-color:var(--hlb);background:var(--hl);box-shadow:0 0 0 3px var(--hls)}
+.card .pos{color:var(--dim2);font-size:10px}.card.alpha{border-color:var(--alpha)}.card.kana,.card.kanaGlyph{border-color:var(--kana)}
+.variants{display:flex;gap:10px;flex-wrap:wrap}.variant{border:1px dashed var(--dim2);border-radius:8px;padding:6px}
+.explain{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 14px;line-height:1.7;margin:12px 0}.explain h3{font-size:1.05em;margin:1em 0 .3em;border-left:4px solid var(--accent);padding-left:6px}.byai{color:var(--dim);font-size:13px}.intro{margin:.3em 0;padding-left:1.2em;line-height:1.6}.cn{font-weight:bold;letter-spacing:1px;font-size:13px;max-width:140px;word-break:break-all}.sc{color:var(--dim);font-size:11px}.legend span{display:inline-block;margin-right:10px;font-weight:bold}.err{color:var(--err)}small{color:var(--dim)}.mono{font-family:ui-monospace,monospace;word-break:break-all}
+.types{margin:4px 0}.types label{margin-right:14px;white-space:nowrap}
+.s0{stroke:var(--k0)}.s1{stroke:var(--k1)}.s2{stroke:var(--k2)}.s3{stroke:var(--k3)}.t0{fill:var(--k0)}.t1{fill:var(--k1)}.t2{fill:var(--k2)}.t3{fill:var(--k3)}
+.n0{color:var(--k0)}.n1{color:var(--k1)}.n2{color:var(--k2)}.n3{color:var(--k3)}
 </style></head><body>
-<h1>kanji-color-key</h1>
+<h1><img alt="" src="/*__FAVICON__*/">kanji-color-key <small id="ver">v1.2.0</small><span class="sp"></span><button id="bTheme" title="表示テーマ（自動＝OSの設定に従う）">表示: 自動</button></h1>
 <ul class="intro">
 <li>暗号化の最終的な鍵としてよく使われる 256 bit 乱数を一画ごとに色のついた約8文字の漢字に直します</li>
 <li>余剰bitが発生してもチェックになる利点があります（余った画や英数字も、黒ではなく鍵から決まる色で埋まります）</li>
 <li><s>見本の色は目安であり下に表示された色順を見てご自身の書き順で書かれることを想定しています（ある程度の揺らぎは試行できるため）</s></li>
 <li>最後は帳尻合わせのため色付き英数字を選べます。また、文字列の途中を英数字にして意味のある漢字を狙うこともできます</li>
+<li>v1.2 から<b>かな</b>（32字・各画に色）も使えます。記号をクリックするたびに 漢字→英数字→かな→漢字 と切り替わります。全部かなにもできます</li>
 </ul>
-<p class="legend"><a href="#explain" onclick="document.getElementById('explain').open=true">AIによる解説</a>　英数字にも、画ごとではなく1文字ごとに色の区別があります。 色: <span style="color:#111">黒</span><span style="color:#d62828">赤</span><span style="color:#1d4ed8">青</span><span style="color:#15803d">緑</span></p>
+<p class="legend"><a href="#explain" onclick="document.getElementById('explain').open=true">AIによる解説</a>　英数字にも、画ごとではなく1文字ごとに色の区別があります。 色: <span class="n0">黒</span><span class="n1">赤</span><span class="n2">青</span><span class="n3">緑</span></p>
 <fieldset><legend>鍵</legend>
 <button id="bRand">乱数で実験する</button>
 データビット数: <input id="bits" type="range" min="64" max="512" step="8" value="256" style="width:35%;vertical-align:middle"> <b id="bitsV">256</b> bit
@@ -32,16 +50,18 @@ button{padding:6px 12px;margin:4px 4px 4px 0;cursor:pointer}fieldset{border:1px 
 <div id="keyInfo" class="mono"></div>
 </fieldset>
 <fieldset id="seqBox"><legend>エンコード結果</legend>
-<div><button id="bAllK">全部漢字</button><button id="bAllA">全部英数字</button>
-<small>記号をクリックすると、その位置を 漢字⇄英数字 に切り替えます（それより後ろの位置は漢字に戻ります。鍵は変わりません）。</small></div>
+<div class="types">使う字種: <label><input type="checkbox" checked disabled> 漢字</label><label><input id="tAlpha" type="checkbox" checked> 英数字</label><label><input id="tKana" type="checkbox" checked> かな</label><label title="全部かなのとき、1字に3画分（11bit）だけ載せる固定長の形式。256bitなら常に24字"><input id="tFixed" type="checkbox"> 全部かなを固定長（KF）で</label></div>
+<div><button id="bAllK">全部漢字</button><button id="bAllA">全部英数字</button><button id="bAllKana">全部かな</button>
+<small id="clickHint"></small></div>
 <div id="info" class="mono"></div>
 <div id="cards" class="cards"></div>
 <div id="err" class="err"></div>
 </fieldset>
 <fieldset><legend>デコード</legend>
-<small>色は 0123 でも 黒赤青緑 でも入力可。記法: <code>?</code>=色・英数字不明, <code>(56)</code>=相対順序は保つが位置不明, <code>[56]</code>=順序入れ替えの可能性（漢字の画）。候補を列挙しチェックコードで絞り込みます。<code>M(</code>・<code>(</code>・<code>A(</code> 形式に対応。</small>
+<small>色は 0123 でも 黒赤青緑 でも入力可。記法: <code>?</code>=色・英数字不明, <code>(56)</code>=相対順序は保つが位置不明, <code>[56]</code>=順序入れ替えの可能性（漢字・かなの画）。候補を列挙しチェックコードで絞り込みます。<code>M(</code>・<code>KF(</code>・<code>(</code>・<code>A(</code> 形式に対応。半角カナも可。</small>
 <textarea id="dec" rows="3" placeholder="M(256+12bit)處23213313000 圃1223203223 I1 ..."></textarea>
-<button id="bDec">デコード</button><div id="decOut" class="mono"></div>
+<button id="bDec">デコード</button> <label><input id="lookAlways" type="checkbox"> かなの見間違い（お/オ・き/キ・け/ケ・さ/サ・ほ/ホ・も/モ）を常に試す</label> <small>（オフでも、候補が1つも見つからないときは自動で試します）</small>
+<div id="decOut" class="mono"></div>
 </fieldset>
 <details id="explain" class="explain"><summary><b>AIによる解説</b>（クリックで開く）</summary>
 <p class="byai">※この解説は、このリポジトリを運用している AI アシスタント Grok Bot が、実際のプログラムを確認したうえで書いたものです。</p>
@@ -53,10 +73,11 @@ button{padding:6px 12px;margin:4px 4px 4px 0;cursor:pointer}fieldset{border:1px 
 <li><b>漢字</b>：決められた 4096 字（JIS第1水準 2965字＋第2水準の一部）から1字を選ぶので 12bit（2<sup>12</sup>=4096）。</li>
 <li><b>画の色</b>：その漢字の一画ごとに 黒・赤・青・緑 の4色から選ぶので 1画 2bit。</li>
 <li><b>英数字</b>：<code>2345679ABCDEFGHIJKLMNOPQRSTVWXYZ</code> の32字（0・1・8・U は除外）で 5bit、文字全体の色4色で 2bit、合わせて 7bit。</li>
+<li><b>かな</b>（v1.2）：3画以上の32字 <code>あおかきけさせたなにはふほまむもやを ウオキケサチツテネホミモヨヰ</code> から1字で 5bit、さらに漢字と同じく1画ごとに色で 2bit（3画なら 5＋6＝11bit、4画なら13bit）。</li>
 </ul>
-<p>計算例：「進」（11画）なら 12＋11×2＝34bit。プールの平均画数は約11画なので1字あたり平均約34bit、256bit なら 256÷34≒7.5 で、最後の1字を含めて<b>8字前後</b>（画数の少ない字が続くと9字以上）になります。乱数3000回の試算では、全部漢字で平均 約8.0字。最後を英数字にすると 漢字 約7.1字＋英数字 約2.8字でした。</p>
+<p>計算例：「進」（11画）なら 12＋11×2＝34bit。プールの平均画数は約11画なので1字あたり平均約34bit、256bit なら 256÷34≒7.5 で、最後の1字を含めて<b>8字前後</b>（画数の少ない字が続くと9字以上）になります。乱数3000回の試算では、全部漢字で平均 約8.0字。最後を英数字にすると 漢字 約7.1字＋英数字 約2.8字でした。全部かなにすると 256bit で約23字（色をつける画は約75画）です。</p>
 <h3>書き順と色</h3>
-<p>色は「1画目、2画目…」の順に割り当てます。この画の順番は KanjiVG というデータに従っており、学校で習った書き順や自分の癖とずれることがあります。</p>
+<p>色は「1画目、2画目…」の順に割り当てます。この画の順番は KanjiVG というデータに従っており（かなも同じ）、学校で習った書き順や自分の癖とずれることがあります。</p>
 <p>大事なのは<b>色の順番</b>です。<s>表示された色の並び（例：青緑青赤…）を前から順に使って書けば、自分の書き順で書いてかまいません。</s>読み返すときは、色を前から順に読み取ります。</p>
 <h3>あいまいな所の書き方と総当たり</h3>
 <ul>
@@ -70,13 +91,18 @@ button{padding:6px 12px;margin:4px 4px 4px 0;cursor:pointer}fieldset{border:1px 
 <p>ビットは「データ → チェック → 余り」の順に並びます。最後の文字の終わりまでの余り（最後の漢字の余った画、末尾の英数字の字や色など）は、SHA-256（「kckp」＋データのビット長＋番号＋データ）から取った<b>余剰ビット</b>で埋めます。同じ鍵なら毎回同じ色になり、鍵ごとに色がばらつきます（v1.0 までは黒で埋めていました）。デコード時には「余りが余剰ビットと一致するか」も照合されるので、これもチェックの代わりになります。</p>
 <p>総当たりの候補は、①余りが余剰ビットと一致（または v1.0 形式の全部0）、②チェックが一致、の両方を満たすものだけが残ります。黒は普通のデータ色でもありますが、余りは鍵の後ろの部分なので、どちらを受け付けても出てくる鍵は変わりません。v1.0 の黒い余りの書き付けもそのまま読めます。間違った候補が偶然残る確率は、およそ 2 の −(C＋余りのビット数) 乗です（C=12 なら約 1/4096。0埋めも受け付けるぶん最大2倍）。C=0 で余りもなければ絞り込みはできず、全候補が表示されるので、実際にパスワードマネージャーで試すことになります。</p>
 <p>チェックのビットが入った画にも <code>?</code> を付けられます。ただし、印を付けずに書き間違えると、正しい答えも候補から外れてしまいます。自信のない所には印を付けてください。</p>
-<h3>漢字／英数字の切り替えと最後の2案</h3>
-<p>記号をクリックすると、その位置が 漢字⇄英数字 に切り替わります。鍵は変わらず、区切りだけが変わります。区切りがずれるので、クリックした位置より後ろは漢字に戻ります。途中を英数字にして、後ろの漢字の並びを変え、意味のありそうな字が出るか探すこともできます。</p>
-<p>最後の部分は「最後を漢字で」（余った画は余剰ビットの色）と「最後を英数字で」（次の漢字が収まりきらない時点から英数字）の2案を並べて表示します。英数字で終える方が、余りは 7bit 未満で済みます。</p>
+<h3>字種の切り替えと最後の案</h3>
+<p>記号をクリックすると、その位置の字種が <b>漢字→英数字→かな→漢字</b> の順に切り替わります（「使う字種」で英数字やかなを外すと、その字種は飛ばします。片方だけなら 漢字⇄英数字 または 漢字⇄かな）。鍵は変わらず、区切りだけが変わります。区切りがずれるので、クリックした位置より後ろは漢字に戻ります。途中を英数字やかなにして、後ろの漢字の並びを変え、意味のありそうな字が出るか探すこともできます。</p>
+<p>最後の部分は案を並べて表示します。「最後を漢字で」は字種をそのまま最後まで続け、最後の字の余った画を余剰ビットの色で埋めます。「最後を英数字で」と「最後を1色かなで」は、次の漢字（またはかな）が収まりきらない時点から、英数字か<b>1色かな</b>（かな1字を全部同じ色で書く。5bit＋色2bit＝7bit、英数字と同じ）で終えます。こちらは余りが 7bit 未満で済みます。デコード時は、色が1つだけのかなを1色かなとして読みます（最初の1色かなは色を1つだけ書きます。2字目以降は <code>ウ222</code> のように画ごとに書いても読めます）。</p>
+<h3>全部かなと固定長（KF）</h3>
+<p>「全部かな」は全位置をかなにします（見出しは <code>M(</code> のまま）。「全部かなを固定長（KF）で」を選ぶと、どのかなにも3画分の色（11bit）だけを載せる形式 <code>KF(256bit)…</code> になり、長さは鍵によらず一定（256bit なら24字）です。4画のかな（きたなふほネホヰ）の4画目は黒で書き、デコードでは無視します。既定は可変長（KFでない方）です。</p>
+<h3>かなの見間違い</h3>
+<p>かなには、ひらがなとカタカナで形の似た組（お/オ・き/キ・け/ケ・さ/サ・ほ/ホ・も/モ）があります。デコードで候補が1つも見つからなかったときは、これらを入れ替えた読みも自動で試します（画数が同じ組だけ。1色かなはすべて）。「常に試す」をオンにすると最初から試します。試す組み合わせが2倍ずつ増えるので、その分だけ誤った候補が残る可能性も上がります。</p>
 <h3>安全のための注意</h3>
 <ul>
 <li>画面や紙を人に見られたり、写真に撮られたりすれば、それで鍵が漏れます。表示は人のいない所で行い、紙は大切に保管してください。</li>
 <li>色ペンは色あせたり、赤と黒の区別がつきにくくなったりします。耐光性のあるペンを使い、ときどき読めるか確かめてください。</li>
+<li>ダーク表示では、黒の画を明るい色（白に近い色）で表示します。紙には黒で書いてください（色の名前は変わりません）。</li>
 <li><b>漢字そのものの書き間違い</b>は、今のところ <code>?</code> で救えません（1字に約34bitが入っているため）。字ははっきり書いてください。</li>
 <li>「乱数で実験する」の乱数はブラウザの <code>crypto.getRandomValues</code>（暗号用の乱数）で作っています。</li>
 <li>パスフレーズから導出するモード（PBKDF2-SHA256、60万回）は、覚えている文から同じ鍵を再現するためのものです。安全性はパスフレーズの強さで決まるので、ランダムな鍵より弱くなりがちです。</li>
@@ -88,74 +114,105 @@ button{padding:6px 12px;margin:4px 4px 4px 0;cursor:pointer}fieldset{border:1px 
 <ul>
 <li>漢字の書き間違いを訂正する仕組み（候補の漢字を総当たりするなど）はまだありません。</li>
 <li>色の判別は人の目に頼っています。カメラで読み取る機能や、画数ぶんの色ボタンが並ぶ入力画面があると便利そうです。</li>
+<li>デコード画面に書き順の見本を出して、色を照らし合わせやすくする予定です。</li>
 <li>プールは漢検準1級の範囲の近似（JISの区分による）で、正式な字表ではありません。</li>
 </ul>
 </details>
 
-<p><small>完全オフラインで動作します（外部通信なし）。英数字: <code>2345679ABCDEFGHIJKLMNOPQRSTVWXYZ</code>（0,1,8,U を除外）。ストロークデータ: <a href="https://kanjivg.tagaini.net/">KanjiVG</a> (CC BY-SA 3.0)。<br>MIT License © zmlworks. このページとリポジトリはAIアシスタント Grok Bot により自律的に運用されています。<a href="https://github.com/zmlworks/kanji-color-key">GitHub</a></small></p>
+<p><small>完全オフラインで動作します（外部通信なし）。英数字: <code>2345679ABCDEFGHIJKLMNOPQRSTVWXYZ</code>（0,1,8,U を除外）。かな: <code>あおかきけさせたなにはふほまむもやを ウオキケサチツテネホミモヨヰ</code>。ストロークデータ（漢字・かな）: <a href="https://kanjivg.tagaini.net/">KanjiVG</a> © Ulrich Apel (CC BY-SA 3.0)。アイコンの絵はプロジェクトのオーナーが提供したものです。<br>MIT License © zmlworks. このページとリポジトリはAIアシスタント Grok Bot により自律的に運用されています。<a href="https://github.com/zmlworks/kanji-color-key">GitHub</a></small></p>
 <script>
 /*__CORE__*/
 const POOLDATA = /*__POOL__*/;
+const KANADATA = /*__KANA__*/;
 const pool = makePool(POOLDATA.kanji, POOLDATA.strokes.map(s => s.length));
+const kana = makeKanaSet(KANADATA.kana, KANADATA.strokes.map(s => s.length));
 const $ = id => document.getElementById(id);
-let key = randomBits(512), custom = null, alphaPos = new Set();
-function svgFor(idx, colors) {
-  const ps = POOLDATA.strokes[idx];
-  return `<svg viewBox="0 0 109 109" xmlns="http://www.w3.org/2000/svg">` + ps.map((d, i) => {
+let key = randomBits(512), custom = null, types = {};
+const enabled = () => ({ alpha: $('tAlpha').checked, kana: $('tKana').checked });
+const TYPE_JA = { kanji: '漢字', alpha: '英数字', kana: 'かな', kanaGlyph: '1色かな' };
+// ---- theme: auto (OS) / light / dark, saved in localStorage
+const THEMES = ['auto', 'light', 'dark'], THEME_JA = { auto: '自動', light: 'ライト', dark: 'ダーク' };
+function setTheme(t) {
+  document.documentElement.dataset.theme = t; $('bTheme').textContent = '表示: ' + THEME_JA[t];
+  try { if (t === 'auto') localStorage.removeItem('kck-theme'); else localStorage.setItem('kck-theme', t); } catch (e) {}
+}
+$('bTheme').onclick = () => setTheme(THEMES[(THEMES.indexOf(document.documentElement.dataset.theme) + 1) % 3]);
+setTheme(document.documentElement.dataset.theme || 'auto');
+function svgFor(strokes, colors) {
+  return `<svg viewBox="0 0 109 109" xmlns="http://www.w3.org/2000/svg">` + strokes.map((d, i) => {
     const c = colors[i] ?? 0, p = d.match(/^M\s*([-\d.]+)[ ,]([-\d.]+)/);
-    return `<path d="${d}" fill="none" stroke="${COLOR_CSS[c]}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>` +
-      (p ? `<text x="${+p[1] - 3}" y="${+p[2] - 1}" font-size="7" fill="${COLOR_CSS[c]}">${i + 1}</text>` : '');
+    return `<path d="${d}" fill="none" class="s${c}" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>` +
+      (p ? `<text x="${+p[1] - 3}" y="${+p[2] - 1}" font-size="7" class="t${c}">${i + 1}</text>` : '');
   }).join('') + `</svg>`;
 }
 function card(t, pos, clickable) {
-  const attr = clickable ? ` class="card click${t.type === 'alpha' ? ' alpha' : ''}" data-pos="${pos}" title="クリックで${t.type === 'kanji' ? '英数字' : '漢字'}に切替"` : ` class="card${t.type === 'alpha' ? ' alpha' : ''}"`;
-  const body = t.type === 'kanji' ? svgFor(t.index, t.colors) : `<div class="glyph" style="color:${COLOR_CSS[t.color]}">${t.char}</div>`;
-  const cols = t.type === 'kanji' ? t.colors : [t.color];
-  const names = cols.map(c => `<span style="color:${COLOR_CSS[c]}">${COLORS[c]}</span>`).join('');
-  return `<div${attr}><div class="pos">#${pos}${t.type === 'kanji' ? ` · <span class="sc">${t.colors.length}画</span>` : ''}</div>${body}<div class="cn">${names}</div></div>`;
+  const cls = `card${clickable ? ' click' : ''}${t.type !== 'kanji' ? ' ' + t.type : ''}`;
+  const nt = clickable ? nextType(t.type === 'kanaGlyph' ? 'kana' : t.type, enabled()) : null;
+  const attr = clickable ? ` class="${cls}" data-pos="${pos}" title="クリックで${TYPE_JA[nt]}に切替"` : ` class="${cls}"`;
+  const body = t.type === 'kanji' ? svgFor(POOLDATA.strokes[t.index], t.colors)
+    : t.type === 'kana' ? svgFor(KANADATA.strokes[t.index], t.colors)
+    : t.type === 'kanaGlyph' ? svgFor(KANADATA.strokes[t.index], KANADATA.strokes[t.index].map(() => t.color))
+    : `<div class="glyph n${t.color}">${t.char}</div>`;
+  const cols = t.colors ?? [t.color];
+  const names = cols.map(c => `<span class="n${c}">${COLORS[c]}</span>`).join('');
+  const head = t.colors ? ` · <span class="sc">${t.colors.length}画</span>` : t.type === 'kanaGlyph' ? ` · <span class="sc">1色</span>` : '';
+  return `<div${attr}><div class="pos">#${pos}${head}</div>${body}<div class="cn">${names}</div></div>`;
 }
 const keyBits = () => custom ?? key.slice(0, +$('bits').value);
-const fmtInfo = r => `漢字${r.tokens.filter(t => t.type === 'kanji').length}・英数字${r.tokens.filter(t => t.type === 'alpha').length}・書く量${r.writtenBits}bit`;
+const TAIL_JA = { kanji: '最後を漢字で', alpha: '最後を英数字で', kana: '最後を1色かなで', fixed: '固定長（KF）' };
+const tailTitle = (v) => { const last = v.enc.tokens.at(-1)?.type; return v.tail !== 'kanji' ? TAIL_JA[v.tail] : last === 'kana' ? '最後をかな（全画）で' : last === 'alpha' ? '最後を英数字で' : TAIL_JA.kanji; };
 function render() {
   $('err').textContent = '';
+  const en = enabled();
+  $('bAllA').disabled = !en.alpha; $('bAllKana').disabled = !en.kana; $('tFixed').disabled = !en.kana;
+  const rot = ['漢字', ...(en.alpha ? ['英数字'] : []), ...(en.kana ? ['かな'] : [])];
+  $('clickHint').textContent = rot.length > 1 ? `記号をクリックすると、その位置を ${rot.join('→')}${rot.length > 2 ? '→漢字' : ''} に切り替えます（それより後ろの位置は漢字に戻ります。鍵は変わりません）。` : '英数字かかなを選ぶと、記号のクリックで字種を切り替えられます。';
   try {
-    const bits = keyBits(), o = { checkBits: +$('chk').value, alphaPos: [...alphaPos] };
+    const bits = keyBits();
     $('bitsV').textContent = custom ? `${bits.length}（入力値）` : $('bits').value; $('keyInfo').textContent = `鍵 (${bits.length}bit) ${bitsToHex(bits)}`;
-    const A = encodeMixed(pool, bits, { ...o, tail: 'kanji' }), B = encodeMixed(pool, bits, { ...o, tail: 'alpha' });
-    let n = 0; while (n < A.tokens.length && n < B.tokens.length && A.tokens[n].type === B.tokens[n].type && A.tokens[n].char === B.tokens[n].char) n++;
-    const prefix = A.tokens.slice(0, n).map((t, i) => card(t, i + 1, true)).join('');
-    const va = A.tokens.slice(n), vb = B.tokens.slice(n);
-    $('info').innerHTML = `${A.totalBits}bit (データ${A.dataBits}+チェック${A.checkBits}) ／ 共通部分 ${n}記号`;
-    $('cards').innerHTML = prefix + (va.length || vb.length ? `<div class="variants">
-      <div class="variant"><b>最後を漢字で</b> <small>${fmtInfo(A)}</small><div class="cards">${va.map((t, i) => card(t, n + i + 1, false)).join('')}</div><div class="mono">${A.text}</div></div>
-      <div class="variant"><b>最後を英数字で</b> <small>${fmtInfo(B)}</small><div class="cards">${vb.map((t, i) => card(t, n + i + 1, false)).join('')}</div><div class="mono">${B.text}</div></div></div>` : `<div class="mono">${A.text}</div>`);
+    const w = webEncode(pool, kana, bits, { checkBits: +$('chk').value, types, ...en, fixed: $('tFixed').checked });
+    $('info').textContent = webHead(w);
+    if (w.fixed) {
+      const e = w.variants[0].enc;
+      $('cards').innerHTML = e.tokens.map((t, i) => card(t, i + 1, false)).join('') + `<div style="flex-basis:100%"><b>${TAIL_JA.fixed}</b> <small>${webInfo(e)}（4画目は黒で書き、読むときは無視）</small><div class="mono">${e.text}</div></div>`;
+      return;
+    }
+    const n = w.common, clickable = rot.length > 1;
+    const prefix = w.variants[0].enc.tokens.slice(0, n).map((t, i) => card(t, i + 1, clickable)).join('');
+    const tails = w.variants.map(v => v.enc.tokens.slice(n));
+    $('cards').innerHTML = prefix + (tails.some(t => t.length) ? `<div class="variants">` + w.variants.map((v, k) =>
+      `<div class="variant"><b>${tailTitle(v)}</b> <small>${webInfo(v.enc)}</small><div class="cards">${tails[k].map((t, i) => card(t, n + i + 1, false)).join('')}</div><div class="mono">${v.enc.text}</div></div>`).join('') + `</div>`
+      : `<div class="mono">${w.variants[0].enc.text}</div>`);
   } catch (e) { $('err').textContent = e.message; }
 }
 $('cards').onclick = e => {
   const c = e.target.closest('[data-pos]'); if (!c) return;
-  const k = +c.dataset.pos, wasAlpha = alphaPos.has(k);
-  alphaPos = new Set([...alphaPos].filter(p => p < k)); if (!wasAlpha) alphaPos.add(k);
-  render();
+  types = clickType(types, +c.dataset.pos, enabled()); render();
 };
-$('bAllK').onclick = () => { alphaPos = new Set(); render(); };
-$('bAllA').onclick = () => { alphaPos = new Set(Array.from({ length: 80 }, (_, i) => i + 1)); render(); };
-$('bRand').onclick = () => { key = randomBits(512); custom = null; if (!$('bits').dataset.touched) $('bits').value = 256; alphaPos = new Set(); render(); };
+for (const id of ['tAlpha', 'tKana']) $(id).onchange = () => { types = keepEnabled(types, enabled()); render(); };
+$('tFixed').onchange = render;
+$('bAllK').onclick = () => { types = {}; render(); };
+$('bAllA').onclick = () => { types = allOf('alpha'); render(); };
+$('bAllKana').onclick = () => { types = allOf('kana'); render(); };
+$('bRand').onclick = () => { key = randomBits(512); custom = null; if (!$('bits').dataset.touched) $('bits').value = 256; types = {}; render(); };
 $('bits').oninput = () => { $('bits').dataset.touched = 1; custom = null; render(); }; $('chk').oninput = render;
-const useBits = b => { custom = b; alphaPos = new Set(); render(); };
+const useBits = b => { custom = b; types = {}; render(); };
 $('bHex').onclick = () => { try { useBits(hexToBits($('hex').value)); } catch (e) { $('err').textContent = e.message; } };
 $('bBin').onclick = () => { try { useBits(parseBitString($('bin').value)); } catch (e) { $('err').textContent = e.message; } };
 $('bPass').onclick = async () => { $('keyInfo').textContent = '導出中…'; const k = await deriveKey($('pass').value, { salt: $('salt').value }); $('hex').value = bitsToHex(bytesToBits(k)); useBits(bytesToBits(k)); };
 $('bDec').onclick = () => {
-  try { const r = decodeAny(pool, $('dec').value);
+  try { const r = decodeAny(pool, $('dec').value, { kana, swapLookalikes: $('lookAlways').checked });
     const note = r.checkBits === 0 ? (r.candidates.length > 1 ? '（チェックビット0のため候補を絞り込めません。チェックを付けるか、各候補を実際のパスワードマネージャ等で試してください）' : '（チェックビット0：照合なし）')
       : (r.candidates.length > 1 ? `（${r.checkBits}bitチェックでも複数残りました。各候補を試してください）` : '');
-    $('decOut').innerHTML = `${r.tried}通り試行 → 候補 ${r.candidates.length}件${note}${r.candidates.length > 50 ? '（先頭50件のみ表示）' : ''}<br>` + r.candidates.slice(0, 50).map(c => `<div>${c.hex}<br><small>${c.text}</small></div>`).join('');
+    const look = r.lookalike === 'fallback' ? '<br>（そのままでは候補がなかったため、かなの見間違い（お/オ など）を入れ替えた読みも試しました。候補の文字列で入れ替わった字を確かめてください）'
+      : r.lookalike === 'always' ? '<br>（かなの見間違いを入れ替えた読みも試しました）' : r.lookalike === 'skipped' ? '<br>（かなの見間違いの入れ替えは、組み合わせが多すぎるため試していません）' : '';
+    $('decOut').innerHTML = `${r.tried}通り試行 → 候補 ${r.candidates.length}件${note}${r.candidates.length > 50 ? '（先頭50件のみ表示）' : ''}${look}<br>` + r.candidates.slice(0, 50).map(c => `<div>${c.hex}<br><small>${c.text}</small></div>`).join('');
   } catch (e) { $('decOut').innerHTML = `<span class="err">${e.message}</span>`; }
 };
 if (location.hash === '#explain') $('explain').open = true;
 if (location.hash === '#demo') {
   key = hexToBits('c2fb9f70272dae3adee45198b576b4873f5ad57ac41696bdfaa92e6de9923e14'.repeat(2));
-  alphaPos = new Set([3, 6]); render();
+  types = { 3: 'alpha', 5: 'kana', 8: 'kana' }; render();
   const t = document.querySelector('.variant .mono').textContent; $('dec').value = t.replace(/^(M\([\d+]+bit\)\S)\d/, '$1?'); $('bDec').onclick();
 } else render();
 </script></body></html>

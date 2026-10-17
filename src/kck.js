@@ -2,6 +2,8 @@
 // A pool is { kanji: string of 4096 chars, counts: number[] (stroke counts in KanjiVG order) }.
 export const COLORS = ['黒', '赤', '青', '緑'];
 export const COLOR_CSS = ['#111111', '#d62828', '#1d4ed8', '#15803d'];
+// On dark backgrounds (dark mode): 黒 is drawn light (as in the launcher icon), the others a little brighter.
+export const COLOR_CSS_DARK = ['#f1eee4', '#e03a3a', '#4a78f0', '#22a55a'];
 export const DEFAULT_CHECK_BITS = 0;
 // Color names accepted in place of digits when decoding (黒0 赤1 青2 緑3).
 const CNAME = { '黒': '0', '赤': '1', '青': '2', '緑': '3' };
@@ -323,99 +325,265 @@ export function decodeAlpha(text, { maxCandidates = 2_000_000 } = {}) {
   }
   return { candidates: results, tried, total, dataBits: p.dataBits, checkBits: p.checkBits };
 }
-// Dispatch on header: "A(" = alpha mode, "(" = kanji mode.
+// Dispatch on header: "A(" = alpha, "KF(" = fixed-length kana, "M(" (or the prototype's "K(") = mixed, "(" = kanji.
+// Texts with kana need the kana set: pass it as o.kana (the web app and the CLI always do).
 export const isAlphaText = (text) => /^\s*[Aa]\s*[(（]/.test(text);
-export const decodeAny = (pool, text, o) => isAlphaText(text) ? decodeAlpha(text, o) : isMixedText(text) ? decodeMixed(pool, text, o) : decodeText(pool, text, o);
+export const isKanaFixedText = (text) => /^\s*[Kk]\s*[Ff]\s*[(（]/.test(text);
+export const decodeAny = (pool, text, o = {}) => isAlphaText(text) ? decodeAlpha(text, o)
+  : isKanaFixedText(text) ? decodeKanaFixed(needKana(o.kana), text, o)
+  : isMixedText(text) ? decodeMixed(pool, text, o) : decodeText(pool, text, o);
+const needKana = (k) => { if (!k) throw new Error('kana set required'); return k; };
 
-// ---------- mixed mode: each symbol is a pool kanji (12 bit + 2 bit/stroke) or an alpha-32 glyph (7 bit) ----------
-// alphaPos: Set of 1-based symbol positions that are alpha glyphs; other positions are kanji.
-// tail 'kanji': keep the scheme to the end (last symbol filled with surplus bits).
-// tail 'alpha': as soon as the next kanji would not be fully used by the remaining bits, finish with alpha glyphs.
-// Text: "M(256+12bit)" + symbols separated by spaces: <kanji><color digits> or <glyph><color digit>.
-export function encodeMixed(pool, dataBits, { checkBits = DEFAULT_CHECK_BITS, alphaPos = [], tail = 'kanji' } = {}) {
-  const ap = new Set(alphaPos), { bits, L } = streamOf(dataBits, checkBits), tokens = [];
-  let pos = 0, alphaRest = false;
+// ---------- kana (v1.2): 32 kana with >= 3 strokes, 5 bit identity + 2 bit per stroke ----------
+// Index = 5-bit value: 18 hiragana, then 14 katakana (data/kana.json, from KanjiVG). ヰ is kept on purpose.
+export const KANA = 'あおかきけさせたなにはふほまむもやを' + 'ウオキケサチツテネホミモヨヰ';
+// Hiragana/katakana pairs inside the set that may be confused when handwritten (used by the look-alike retry).
+export const KANA_LOOKALIKES = [['お', 'オ'], ['き', 'キ'], ['け', 'ケ'], ['さ', 'サ'], ['ほ', 'ホ'], ['も', 'モ']];
+const PARTNER = new Map(KANA_LOOKALIKES.flatMap(([a, b]) => [[a, b], [b, a]]));
+// A kana set is { chars: 32 kana (index = 5-bit value), counts: stroke counts (KanjiVG), index: Map }.
+export function makeKanaSet(kana, counts) {
+  const chars = [...kana];
+  if (chars.length !== 32 || counts.length !== 32 || new Set(chars).size !== 32) throw new Error('kana set must have 32 distinct kana');
+  return { chars, counts, index: new Map(chars.map((c, i) => [c, i])) };
+}
+
+// ---------- mixed mode: each symbol is a pool kanji (12 bit + 2 bit/stroke), an alpha-32 glyph (7 bit),
+// or (v1.2) a kana (5 bit + 2 bit/stroke, 3 or 4 strokes) ----------
+// alphaPos / kanaPos: 1-based symbol positions that are alpha glyphs / kana; other positions are kanji.
+// tail 'kanji': keep the chosen types to the end (the last symbol is filled with surplus bits).
+// tail 'alpha': as soon as the next kanji or kana would not be fully used by the remaining bits, finish with alpha glyphs.
+// tail 'kana' (v1.2): same switch point, but finish with one-color kana ("kanaGlyph": 5 bit kana + 1 color = 7 bit,
+//   written as e.g. ウ2, the whole kana in one color), so less than 7 bits are surplus, as with alpha.
+// Text: "M(256+12bit)" + symbols separated by spaces: <kanji|kana><color digits> or <glyph|one-color kana><color digit>.
+export function encodeMixed(pool, dataBits, { checkBits = DEFAULT_CHECK_BITS, alphaPos = [], kanaPos = [], tail = 'kanji', kana = null } = {}) {
+  if (!['kanji', 'alpha', 'kana'].includes(tail)) throw new Error('tail must be kanji, alpha or kana');
+  const ap = new Set(alphaPos), kp = new Set(kanaPos);
+  if (kp.size || tail === 'kana') needKana(kana);
+  const { bits, L } = streamOf(dataBits, checkBits), tokens = [];
+  let pos = 0, rest = null;
   for (let i = 1; pos < L; i++) {
-    let isAlpha = alphaRest || ap.has(i);
-    if (!isAlpha && tail === 'alpha') {
-      const idx = readInt(bits, pos, 12);
-      if (L - pos < 12 + 2 * pool.counts[idx]) { alphaRest = isAlpha = true; }
+    let type = rest ?? (ap.has(i) ? 'alpha' : kp.has(i) ? 'kana' : 'kanji');
+    if (!rest && tail !== 'kanji' && type !== 'alpha') {
+      const full = type === 'kanji' ? 12 + 2 * pool.counts[readInt(bits, pos, 12)] : 5 + 2 * kana.counts[readInt(bits, pos, 5)];
+      if (L - pos < full) type = rest = tail === 'alpha' ? 'alpha' : 'kanaGlyph';
     }
-    if (isAlpha) { tokens.push({ type: 'alpha', char: ALPHA[readInt(bits, pos, 5)], color: readInt(bits, pos + 5, 2) }); pos += 7; }
+    if (type === 'alpha') { tokens.push({ type, char: ALPHA[readInt(bits, pos, 5)], color: readInt(bits, pos + 5, 2) }); pos += 7; }
+    else if (type === 'kanaGlyph') { const idx = readInt(bits, pos, 5); tokens.push({ type, char: kana.chars[idx], index: idx, color: readInt(bits, pos + 5, 2) }); pos += 7; }
     else {
-      const idx = readInt(bits, pos, 12), colors = []; pos += 12;
-      for (let s = 0; s < pool.counts[idx]; s++) { colors.push(readInt(bits, pos, 2)); pos += 2; }
-      tokens.push({ type: 'kanji', char: pool.chars[idx], index: idx, colors });
+      const kanji = type === 'kanji', n = kanji ? 12 : 5, idx = readInt(bits, pos, n), colors = []; pos += n;
+      for (let s = 0; s < (kanji ? pool.counts[idx] : kana.counts[idx]); s++) { colors.push(readInt(bits, pos, 2)); pos += 2; }
+      tokens.push({ type, char: kanji ? pool.chars[idx] : kana.chars[idx], index: idx, colors });
     }
   }
   return { tokens, text: formatMixed(tokens, dataBits.length, checkBits), totalBits: L, dataBits: dataBits.length, checkBits, writtenBits: pos, surplus: pos - L };
 }
+const hasColors = (t) => t.type === 'kanji' || t.type === 'kana';
 export function formatMixed(tokens, dataLen, checkBits) {
-  return `M(${dataLen}${checkBits ? '+' + checkBits : ''}bit)` + tokens.map(t => t.type === 'kanji' ? t.char + t.colors.join('') : t.char + t.color).join(' ');
+  return `M(${dataLen}${checkBits ? '+' + checkBits : ''}bit)` + tokens.map(t => t.char + (hasColors(t) ? t.colors.join('') : t.color)).join(' ');
 }
-export const isMixedText = (text) => /^\s*[Mm]\s*[(（]/.test(text);
-export function parseMixed(pool, text) {
-  const t = text.replace(/\s+/g, '').normalize('NFC');
-  const m = /^[Mm][(（](\d+)(?:\+(\d+))?bit[)）]/i.exec(t);
+export const isMixedText = (text) => /^\s*[MmKk]\s*[(（]/.test(text);
+// Whitespace is ignored; halfwidth katakana (ｳ) are read as fullwidth (NFKC on that range only).
+const squeeze = (text) => text.replace(/\s+/g, '').replace(/[\uFF61-\uFF9F]+/g, s => s.normalize('NFKC')).normalize('NFC');
+// Color run after a kanji/kana: up to `need` colors (0-3 ? or 黒赤青緑) plus brackets. Returns { spec, n, i }.
+function colorRun(chars, i, need) {
+  let spec = '', n = 0;
+  while (i < chars.length) {
+    if (n < need && CNAME[chars[i]]) chars[i] = CNAME[chars[i]];
+    const d = chars[i];
+    if (n === need && !')]'.includes(d)) break;
+    if (/[0-3?]/.test(d)) n++; else if (!'()[]'.includes(d)) break;
+    spec += d; i++;
+  }
+  return { spec, n, i };
+}
+export function parseMixed(pool, text, kana = null) {
+  const t = squeeze(text);
+  const m = /^[MmKk][(（](\d+)(?:\+(\d+))?bit[)）]/i.exec(t);
   if (!m) throw new Error('missing header like M(256+12bit)');
   const dataBits = +m[1], checkBits = m[2] === undefined ? DEFAULT_CHECK_BITS : +m[2];
   const chars = [...t.slice(m[0].length)], tokens = [];
-  let i = 0, budget = dataBits + checkBits;
+  let i = 0, budget = dataBits + checkBits, glyphRun = false;
+  const onlyGlyphs = (c) => new Error(`"${c}" cannot follow a one-color kana (only one-color kana until the end)`);
   while (i < chars.length && budget > 0) {
     const c = chars[i++];
     if (/[0-9A-Za-z?]/.test(c)) {
       const g = c.toUpperCase(), col = CNAME[chars[i]] ?? chars[i]; i++;
       if (g !== '?' && !ALPHA.includes(g)) throw new Error(`"${g}" is not in the alpha set (0, 1, 8, U are excluded)`);
       if (!col || !/[0-3?]/.test(col)) throw new Error(`bad color "${col ?? ''}" after "${g}"`);
+      if (glyphRun) throw onlyGlyphs(g);
       const gs = g === '?' ? [...Array(32).keys()] : [ALPHA.indexOf(g)], cs = col === '?' ? [0, 1, 2, 3] : [+col];
       tokens.push({ type: 'alpha', char: g, spec: col, options: gs.flatMap(a => cs.map(b => a * 4 + b)) }); budget -= 7;
+    } else if (kana && kana.index.has(c)) {
+      const index = kana.index.get(c), s = kana.counts[index], r = colorRun(chars, i, s), spec = r.spec; i = r.i;
+      const plain = /^([0-3])\1*$/.test(spec);
+      if (r.n === 1) { glyphRun = true; tokens.push({ type: 'kanaGlyph', char: c, index, spec, options: expandColorSpec(spec) }); budget -= 7; }
+      else if (r.n === s && glyphRun) {
+        // a one-color kana copied stroke by stroke ("ウ222" for "ウ2")
+        if (!plain) throw new Error(`"${c}" after a one-color kana must also be one color, got ${spec}`);
+        tokens.push({ type: 'kanaGlyph', char: c, index, spec: spec[0], options: [[+spec[0]]] }); budget -= 7;
+      } else if (r.n === s) {
+        // the last symbol may also be a one-color kana copied stroke by stroke: try both readings
+        tokens.push({ type: 'kana', char: c, index, spec, options: expandColorSpec(spec), glyphAlt: budget <= 7 && plain }); budget -= 5 + 2 * s;
+      } else throw new Error(`"${c}" needs ${s} colors (or 1 as a one-color tail kana), got ${r.n}`);
     } else {
       if (!pool.index.has(c)) throw new Error(`"${c}" is not in the kanji pool`);
-      const index = pool.index.get(c), need = pool.counts[index];
-      let spec = '', n = 0;
-      while (i < chars.length) {
-        if (n < need && CNAME[chars[i]]) chars[i] = CNAME[chars[i]];
-        const d = chars[i];
-        if (n === need && !')]'.includes(d)) break;
-        if (/[0-3?]/.test(d)) n++; else if (!'()[]'.includes(d)) break;
-        spec += d; i++;
-      }
-      if (n !== need) throw new Error(`"${c}" needs ${need} colors, got ${n}`);
-      tokens.push({ type: 'kanji', char: c, index, spec, options: expandColorSpec(spec) }); budget -= 12 + 2 * need;
+      if (glyphRun) throw onlyGlyphs(c);
+      const index = pool.index.get(c), need = pool.counts[index], r = colorRun(chars, i, need); i = r.i;
+      if (r.n !== need) throw new Error(`"${c}" needs ${need} colors, got ${r.n}`);
+      tokens.push({ type: 'kanji', char: c, index, spec: r.spec, options: expandColorSpec(r.spec) }); budget -= 12 + 2 * need;
     }
   }
   if (budget > 0) throw new Error('text too short for header');
   if (i < chars.length) throw new Error('trailing characters: ' + chars.slice(i).join(''));
   return { dataBits, checkBits, tokens };
 }
-export function decodeMixed(pool, text, { maxCandidates = 2_000_000 } = {}) {
-  const p = parseMixed(pool, text), L = p.dataBits + p.checkBits;
-  const total = p.tokens.reduce((a, t) => a * t.options.length, 1);
+const pushInt = (bits, v, n) => { for (let b = n - 1; b >= 0; b--) bits.push((v >> b) & 1); };
+// Alternatives of every parsed symbol: { type, index|v, colors }. With swap, a look-alike kana also tries its
+// hiragana/katakana partner when the stroke count is the same (so the layout is unchanged) or it is one-color.
+function symbolAlts(kana, tk, swap, fixed = false) {
+  if (tk.type === 'alpha') return tk.options.map(v => ({ type: 'alpha', v }));
+  if (tk.type === 'kanji') return tk.options.map(o => ({ type: 'kanji', index: tk.index, colors: o }));
+  const idx = [tk.index], q = swap && PARTNER.get(tk.char);
+  if (q && kana.index.has(q) && (tk.type === 'kanaGlyph' || kana.counts[kana.index.get(q)] === kana.counts[tk.index])) idx.push(kana.index.get(q));
+  const alts = idx.flatMap(ix => tk.options.map(o => ({ type: tk.type, index: ix, colors: o, fixed })));
+  if (tk.glyphAlt) alts.push(...idx.map(ix => ({ type: 'kanaGlyph', index: ix, colors: [tk.options[0][0]] })));
+  return alts;
+}
+function altBits(a) {
+  const bits = [];
+  if (a.type === 'alpha') pushInt(bits, a.v, 7);
+  else { pushInt(bits, a.index, a.type === 'kanji' ? 12 : 5); for (const c of a.colors) pushInt(bits, c, 2); }
+  return bits;
+}
+function altToken(pool, kana, a) {
+  if (a.type === 'alpha') return { type: 'alpha', char: ALPHA[a.v >> 2], color: a.v & 3 };
+  if (a.type === 'kanji') return { type: 'kanji', char: pool.chars[a.index], index: a.index, colors: a.colors };
+  if (a.type === 'kanaGlyph') return { type: 'kanaGlyph', char: kana.chars[a.index], index: a.index, color: a.colors[0] };
+  const colors = a.colors.slice(); while (colors.length < kana.counts[a.index]) colors.push(0); // KF: 4th stroke black
+  return { type: 'kana', char: kana.chars[a.index], index: a.index, colors };
+}
+const product = (alts) => alts.reduce((a, x) => a * x.length, 1);
+// Enumerate every combination; keep those whose check matches and whose padding is the surplus (or all zero, v1.0).
+function search(p, alts, toCandidate, maxCandidates) {
+  const total = product(alts);
   if (total > maxCandidates) throw new Error(`too many combinations (${total}); narrow the uncertainty`);
-  const choice = new Array(p.tokens.length).fill(0), results = [], seen = new Set(); let tried = 0;
+  const L = p.dataBits + p.checkBits, ob = alts.map(a => a.map(altBits)), choice = new Array(alts.length).fill(0), results = [], seen = new Set();
+  let tried = 0;
   for (;;) {
     tried++;
     const bits = [];
-    p.tokens.forEach((t, k) => {
-      const o = t.options[choice[k]];
-      if (t.type === 'kanji') { for (let b = 11; b >= 0; b--) bits.push((t.index >> b) & 1); for (const c of o) bits.push(c >> 1, c & 1); }
-      else for (let b = 6; b >= 0; b--) bits.push((o >> b) & 1);
-    });
+    for (let k = 0; k < ob.length; k++) for (const b of ob[k][choice[k]]) bits.push(b);
     const data = bits.slice(0, p.dataBits), chk = bits.slice(p.dataBits, L);
     const padding = checkCode(data, p.checkBits).every((b, j) => b === chk[j]) && paddingKind(data, bits.slice(L));
     if (padding) {
       const dk = data.join('');
-      if (!seen.has(dk)) {
-        seen.add(dk);
-        const tokens = p.tokens.map((t, k) => t.type === 'kanji'
-          ? { type: 'kanji', char: t.char, index: t.index, colors: t.options[choice[k]] }
-          : { type: 'alpha', char: ALPHA[t.options[choice[k]] >> 2], color: t.options[choice[k]] & 3 });
-        results.push({ bits: data, hex: bitsToHex(data), text: formatMixed(tokens, p.dataBits, p.checkBits), tokens, padding });
-      }
+      if (!seen.has(dk)) { seen.add(dk); results.push({ bits: data, hex: bitsToHex(data), ...toCandidate(alts.map((a, k) => a[choice[k]])), padding }); }
     }
     let k = 0;
-    while (k < choice.length && ++choice[k] === p.tokens[k].options.length) choice[k++] = 0;
+    while (k < choice.length && ++choice[k] === alts[k].length) choice[k++] = 0;
     if (k === choice.length) break;
   }
-  return { candidates: results, tried, total, dataBits: p.dataBits, checkBits: p.checkBits };
+  return { candidates: results, tried, total };
 }
+// Look-alike retry. lookalike in the result: 'off' (not tried), 'always' (swapLookalikes), 'fallback' (the normal
+// search found nothing, so the partners were tried too; tried counts both runs), 'skipped' (fallback too large).
+function searchWithLookalikes(p, altsFor, toCandidate, { maxCandidates = 2_000_000, swapLookalikes = false, lookalikeFallback = true } = {}) {
+  const r = { ...search(p, altsFor(swapLookalikes), toCandidate, maxCandidates), lookalike: swapLookalikes ? 'always' : 'off' };
+  if (r.candidates.length || swapLookalikes || !lookalikeFallback) return r;
+  const b = altsFor(true), totalB = product(b);
+  if (totalB === r.total) return r;
+  if (totalB > maxCandidates) return { ...r, lookalike: 'skipped' };
+  const r2 = search(p, b, toCandidate, maxCandidates);
+  return { ...r2, tried: r.tried + r2.tried, lookalike: 'fallback' };
+}
+export function decodeMixed(pool, text, o = {}) {
+  const kana = o.kana ?? null, p = parseMixed(pool, text, kana);
+  const toCandidate = (alts) => { const tokens = alts.map(a => altToken(pool, kana, a)); return { text: formatMixed(tokens, p.dataBits, p.checkBits), tokens }; };
+  const r = searchWithLookalikes(p, swap => p.tokens.map(tk => symbolAlts(kana, tk, swap)), toCandidate, o);
+  return { ...r, dataBits: p.dataBits, checkBits: p.checkBits };
+}
+
+// ---------- fixed-length kana (v1.2), header "KF(256+12bit)" ----------
+// Every kana carries exactly 3 colored strokes (5 + 6 = 11 bit), so the length is always ceil(L / 11) kana
+// (256 bit: 24 kana). The 4th stroke of きたなふほネホヰ is written black and ignored by the decoder.
+export function encodeKanaFixed(kana, dataBits, { checkBits = DEFAULT_CHECK_BITS } = {}) {
+  const { bits, L } = streamOf(dataBits, checkBits), tokens = [];
+  let pos = 0;
+  for (; pos < L; pos += 11) {
+    const idx = readInt(bits, pos, 5), colors = [0, 1, 2].map(j => readInt(bits, pos + 5 + 2 * j, 2));
+    while (colors.length < kana.counts[idx]) colors.push(0);
+    tokens.push({ type: 'kana', char: kana.chars[idx], index: idx, colors });
+  }
+  return { tokens, text: formatKanaFixed(tokens, dataBits.length, checkBits), totalBits: L, dataBits: dataBits.length, checkBits, writtenBits: pos, surplus: pos - L, fixed: true };
+}
+export function formatKanaFixed(tokens, dataLen, checkBits) {
+  return `KF(${dataLen}${checkBits ? '+' + checkBits : ''}bit)` + tokens.map(t => t.char + t.colors.join('')).join(' ');
+}
+export function parseKanaFixed(kana, text) {
+  const t = squeeze(text);
+  const m = /^[Kk][Ff][(（](\d+)(?:\+(\d+))?bit[)）]/i.exec(t);
+  if (!m) throw new Error('missing header like KF(256+12bit)');
+  const dataBits = +m[1], checkBits = m[2] === undefined ? DEFAULT_CHECK_BITS : +m[2];
+  const chars = [...t.slice(m[0].length)], tokens = [];
+  let i = 0, budget = dataBits + checkBits;
+  while (i < chars.length && budget > 0) {
+    const c = chars[i++];
+    if (!kana.index.has(c)) throw new Error(`"${c}" is not in the kana set (${kana.chars.join('')})`);
+    const index = kana.index.get(c), s = kana.counts[index], r = colorRun(chars, i, s); i = r.i;
+    if (r.n !== s) throw new Error(`"${c}" needs ${s} colors, got ${r.n}`);
+    const options = [...new Map(expandColorSpec(r.spec).map(a => a.slice(0, 3)).map(a => [a.join(''), a])).values()];
+    tokens.push({ type: 'kana', char: c, index, spec: r.spec, options }); budget -= 11;
+  }
+  if (budget > 0) throw new Error('text too short for header');
+  if (i < chars.length) throw new Error('trailing characters: ' + chars.slice(i).join(''));
+  return { dataBits, checkBits, tokens, fixed: true };
+}
+export function decodeKanaFixed(kana, text, o = {}) {
+  const p = parseKanaFixed(kana, text);
+  const toCandidate = (alts) => { const tokens = alts.map(a => altToken(null, kana, a)); return { text: formatKanaFixed(tokens, p.dataBits, p.checkBits), tokens }; };
+  const r = searchWithLookalikes(p, swap => p.tokens.map(tk => symbolAlts(kana, tk, swap, true)), toCandidate, o);
+  return { ...r, dataBits: p.dataBits, checkBits: p.checkBits, fixed: true };
+}
+
+// ---------- the web page's model (web/app.html; the Android port mirrors it and is checked by test vectors) ----------
+// types: { [1-based position]: 'alpha' | 'kana' }, positions not listed are kanji.
+// enabled: { alpha: bool, kana: bool } — which symbol types the user switched on.
+export const TYPE_ROTATION = ['kanji', 'alpha', 'kana'];
+export function nextType(cur, { alpha = true, kana = true } = {}) {
+  const on = TYPE_ROTATION.filter(t => t === 'kanji' || (t === 'alpha' ? alpha : kana));
+  return on[(on.indexOf(cur) + 1) % on.length];
+}
+// Click on symbol k: rotate its type kanji → alpha → kana → kanji (skipping disabled types); later positions go back
+// to kanji (the boundaries move), earlier ones stay.
+export function clickType(types, k, enabled) {
+  const next = {};
+  for (const [p, t] of Object.entries(types)) if (+p < k) next[p] = t;
+  const n = nextType(types[k] ?? 'kanji', enabled);
+  if (n !== 'kanji') next[k] = n;
+  return next;
+}
+// Drop positions whose type was switched off.
+export const keepEnabled = (types, { alpha = true, kana = true } = {}) =>
+  Object.fromEntries(Object.entries(types).filter(([, t]) => t === 'alpha' ? alpha : kana));
+export const ALL_POSITIONS = 80;
+export const allOf = (type) => type === 'kanji' ? {} : Object.fromEntries(Array.from({ length: ALL_POSITIONS }, (_, i) => [i + 1, type]));
+export const isAllOf = (types, type) => Array.from({ length: ALL_POSITIONS }, (_, i) => types[i + 1] === type).every(Boolean);
+// The endings shown: always 'kanji' (keep the types, pad the last symbol), plus 'alpha' / 'kana' when enabled.
+// fixed (KF) applies only when every position is kana. Returns { variants: [{ tail, enc }], common, fixed }.
+export function webEncode(pool, kana, bits, { checkBits = DEFAULT_CHECK_BITS, types = {}, alpha = true, kana: kanaOn = false, fixed = false } = {}) {
+  if (kanaOn && fixed && isAllOf(types, 'kana')) {
+    const enc = encodeKanaFixed(kana, bits, { checkBits });
+    return { variants: [{ tail: 'fixed', enc }], common: enc.tokens.length, fixed: true };
+  }
+  const pos = (ty) => Object.keys(types).filter(p => types[p] === ty).map(Number);
+  const o = { checkBits, alphaPos: pos('alpha'), kanaPos: pos('kana'), kana };
+  const tails = ['kanji', ...(alpha ? ['alpha'] : []), ...(kanaOn ? ['kana'] : [])];
+  const variants = tails.map(tail => ({ tail, enc: encodeMixed(pool, bits, { ...o, tail }) }))
+    .filter((v, i, all) => all.findIndex(w => w.enc.text === v.enc.text) === i); // identical endings shown once
+  const same = (n) => variants.every(v => n < v.enc.tokens.length && v.enc.tokens[n].type === variants[0].enc.tokens[n].type && v.enc.tokens[n].char === variants[0].enc.tokens[n].char);
+  let n = 0; while (same(n)) n++;
+  return { variants, common: n, fixed: false };
+}
+const countOf = (r, ...ty) => r.tokens.filter(t => ty.includes(t.type)).length;
+export const webInfo = (r) => `漢字${countOf(r, 'kanji')}・英数字${countOf(r, 'alpha')}・かな${countOf(r, 'kana', 'kanaGlyph')}・書く量${r.writtenBits}bit`;
+export const webHead = (w) => { const a = w.variants[0].enc; return `${a.totalBits}bit (データ${a.dataBits}+チェック${a.checkBits}) ／ 共通部分 ${w.common}記号`; };

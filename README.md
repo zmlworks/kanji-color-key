@@ -13,6 +13,7 @@
 - 余剰 bit（最後の文字の余った画・英数字の字や色）は v1.1 から鍵から決まる色で埋まり（以前は黒）、デコード時にはチェックとして働きます。
 - ~~見本の色は目安です。表示された色順（黒赤青緑…）を見て、ご自身の書き順で書くことを想定しています（ある程度の揺らぎは試行できるため）。~~
 - デコード入力の色は `0123` の代わりに `黒赤青緑` でも書けます。
+- v1.2 から**かな**（3画以上の32字、各画に色）も使えます。漢字・英数字・かなを位置ごとに混ぜたり、全部かなにしたりできます。Web 版はダーク表示に対応しました。
 
 ## 方式
 
@@ -70,21 +71,46 @@
 A(256+12bit)2030C0B3 9261D2S2 H3R26392 O1V391Q1 X3I3R021 4140S2K0 D2P1M2Y0 K0S2O1H3 S2G3I1V3 Z0N2G0
 ```
 
+## かな（v1.2〜 / kana）
+
+*Kana (v1.2+): 32 kana with 3–4 strokes; a kana is 5 bit (index) + 2 bit per stroke (11 or 13 bit). Used inside mixed mode (`M(` header); a one-color tail kana ("1色かな", 5+2 = 7 bit) is a third ending. An optional fixed-length all-kana mode `KF(` writes 3 colors per kana (11 bit).*
+
+- 字（この順で 0〜31、5 bit）: **`あおかきけさせたなにはふほまむもやを ウオキケサチツテネホミモヨヰ`**（ひらがな18・カタカナ14。3画か4画の字だけ。`data/kana.txt`）。半角カタカナで入力しても全角として読みます。
+- **かな**: 字 5 bit ＋ 漢字と同じく1画ごとに色 2 bit。3画なら 11 bit、4画なら 13 bit。
+- **1色かな**（末尾用）: 字 5 bit ＋ 全部の画を同じ1色で 2 bit = 7 bit（英数字と同じ量）。デコードでは色が1つだけのかなを1色かなとして読みます（1色かなの後ろには1色かなしか置けません。2字目以降と最後の1字は `ウ222` のように全画同じ色で書いても読めます）。
+- ミックスモードの終わり方は3通り: (a) **最後を漢字で**（最後の記号の余りを余剰ビットで埋める。位置指定でかなになっていれば最後もかな）、(b) **最後を英数字で**、(c) **最後を1色かなで**。(b)(c) は、次の漢字（またはかな）が収まりきらない時点で切り替えます。
+- **全部かな**: 全位置をかなにしたミックス（可変長、`M(` ヘッダ）。256+12bit 平均 約24字・書く量 約271〜274bit。
+- **固定長かな KF**（任意）: 各かなに3色だけ使い（11 bit）、4画の字の4画目は黒で書いて読むときは無視。ヘッダ `KF(データ+チェックbit)`。256 bit なら常に 24字、256+12bit なら 25字。
+- **見間違いの入れ替え**: ひらがなとカタカナで形の似た組（お/オ・き/キ・け/ケ・さ/サ・ほ/ホ・も/モ）。デコードで候補が1つもないときは自動で入れ替えた読みも試します（画数が同じ組だけ、1色かなはすべて。組み合わせが `maxCandidates` を超えるなら試さない）。`--lookalike`（Web では「常に試す」）で最初から試します。試す数が増えるぶん、誤った候補が通る確率も上がります。
+- 書き順の見本は KanjiVG の定義（`data/kana.json` に画ごとのパスを収録）。
+
+```
+M(256+12bit)處23213313000 圃1223203223 I1 叮03030 ふ1113 孫2013033311 熔13223010011221 ま132 柧1021130312 擡21013300221322321
+M(256+12bit)處23213313000 圃1223203223 I1 叮03030 ふ1113 孫2013033311 熔13223010011221 ま132 柧1021130312 Y2 F2 B3 W0 N3 T3 M3
+M(256+12bit)處23213313000 圃1223203223 I1 叮03030 ふ1113 孫2013033311 熔13223010011221 ま132 柧1021130312 ヨ2 ほ2 な3 ミ0 キ3 ネ3 オ3
+KF(256+12bit)ツ113 ホ2130 ホ2000 に302 ホ1130 き2230 も130 を101 オ011 ケ131 ケ221 お303 ヨ231 ま111 モ120 や112 ウ311 モ332 ケ102 ふ2120 ホ3100 テ020 ヰ0020 オ311 テ323
+```
+
+（上の3行は同じ鍵の3通りの終わり方。位置3が英数字、位置5と8がかな。）
+
+**互換性**: v1.0（0埋め）・v1.1（余剰ビット）の出力は v1.2 でもそのまま読めます。かなを使わない出力は v1.1 と同じ文字列です。かなを含む出力や `KF(` は v1.1 以前のデコーダでは読めません。試作版の `K(` ヘッダは `M(` と同じものとして読みます。
+
 ## Web アプリ（統合 UI / unified UI）
 
-*The web app uses mixed mode only: click any symbol to toggle it kanji ⇄ glyph (later positions reset to kanji); only the final symbol(s) are shown in two variants (kanji ending vs glyph ending).*
+*The web app uses mixed mode: alpha glyphs and kana can each be enabled; clicking a symbol rotates its type kanji → alpha → kana → kanji (2-way when only one is enabled; later positions reset to kanji). Endings are shown side by side. Light/dark follows the OS, with a manual toggle saved in localStorage.*
 
 - 鍵（ランダム／16進／2進／パスフレーズ）、データビット数スライダー（64〜512）、チェックビット数を指定。
-- 記号をクリックするとその位置が 漢字⇄英数字 に切り替わり、同じ鍵で再計算。クリック位置より後ろは漢字に戻る（境界がずれるため）。前は保持。
-- 最後の部分だけ「最後を漢字で」「最後を英数字で」の2案を並べて表示。「全部漢字」「全部英数字」ボタンあり。🎲で振り直し。
+- 「英数字」「かな」はそれぞれオン/オフ可能（既定は両方オン）。記号をクリックするとその位置が 漢字→英数字→かな→漢字 と切り替わり（片方だけオンなら2通り）、同じ鍵で再計算。クリック位置より後ろは漢字に戻る（境界がずれるため）。前は保持。
+- 最後の部分だけ「最後を漢字で」「最後を英数字で」「最後を1色かなで」を並べて表示（同じになる案は1つにまとめる）。「全部漢字」「全部英数字」「全部かな」ボタンあり。全部かなのときは「固定長（KF）」も選べる（既定は可変長）。
+- 表示テーマは OS の設定に従い（`prefers-color-scheme`）、「表示」ボタンで 自動／ライト／ダーク を切替（`localStorage` に保存）。ダーク表示では黒の画を明るい色（#F1EEE4）で描きます。色の名前は変わりません。紙には黒で書いてください。
 
 ## ミックスモード（mixed）
 
-*Mixed mode: each symbol is either a pool kanji (12 bit + 2 bit/stroke) or an alpha-32 glyph (7 bit); you pick which positions (1–12) are glyphs. Two endings are offered: (a) keep kanji to the end (last one filled with surplus bits), (b) finish with glyphs once the next kanji would not be fully used.*
+*Mixed mode: each symbol is a pool kanji (12 bit + 2 bit/stroke), an alpha-32 glyph (7 bit) or (v1.2) a kana (5 bit + 2 bit/stroke); you pick which positions are glyphs / kana. Endings: (a) keep the types to the end (last one filled with surplus bits), (b) finish with glyphs, (c) finish with one-color kana once the next symbol would not be fully used.*
 
 - ヘッダ `M(データ+チェックbit)`。記号は空白区切り（空白は省略可。英数字は ASCII なので漢字と区別でき、漢字の後の色数字は画数で決まる）。
-- 位置 1〜12 のうち指定した位置が英数字、それ以外と13番目以降は漢字。デコードには位置指定は不要（字種で判別）。
-- (a) 末尾も漢字: 最後の漢字の余り画は余剰ビットの色（v1.0 は黒。12bit 未満から始まる漢字は字そのものも余剰で決まる）。(b) 末尾を英数字: 次の漢字が収まりきらない時点で英数字に切替え、無駄は 7bit 未満。
+- 指定した位置が英数字（またはかな）、それ以外は漢字。デコードには位置指定は不要（字種で判別）。
+- (a) 末尾も漢字: 最後の漢字の余り画は余剰ビットの色（v1.0 は黒。12bit 未満から始まる漢字は字そのものも余剰で決まる）。(b) 末尾を英数字: 次の漢字が収まりきらない時点で英数字に切替え、無駄は 7bit 未満。(c) 末尾を1色かな（v1.2〜、下記）: (b) と同じ量で英数字の代わりに1色かな。
 - 256+12bit 平均（2000回）: 位置指定なし (a) 漢字8.4字・書く量285bit / (b) 漢字7.4字＋英数字2.8字・271bit。
 
 ```
@@ -102,10 +128,15 @@ node bin/kck.js decode "(256+12bit)唖[10]02020303施..."
 node bin/kck.js random --alpha              # 英数字モード（encode/encode-bits/hash でも --alpha）
 node bin/kck.js decode "A(256+12bit)2030C0B3 ..."   # ヘッダでモード自動判別
 node bin/kck.js random --bits 256 --alpha-pos 3,7 --tail alpha   # ミックス
+node bin/kck.js random --alpha-pos 3 --kana-pos 5,8 --tail kana  # かなを混ぜ、最後を1色かなで
+node bin/kck.js random --kana              # 全部かな（可変長）
+node bin/kck.js random --kana-fixed        # 固定長かな KF(...)
+node bin/kck.js decode "M(256bit)..." --lookalike   # お/オ などの入れ替えを最初から試す
 node --test test/*.test.js                 # npm test
 node tools/build-web.js                    # docs/index.html を再生成
 ```
 JS コアは `src/kck.js`（依存なし、ブラウザ/Node 両対応）。
 
 ## License
-Code: MIT © zmlworks. Stroke data: [KanjiVG](https://kanjivg.tagaini.net/) © Ulrich Apel, CC BY-SA 3.0 (see `data/NOTICE.md`).
+Code: MIT © zmlworks. Stroke data (kanji and kana): [KanjiVG](https://kanjivg.tagaini.net/) © Ulrich Apel, CC BY-SA 3.0 (see `data/NOTICE.md`).
+Icon (favicon / apple-touch-icon): icon artwork supplied by the project owner.
