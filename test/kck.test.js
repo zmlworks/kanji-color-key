@@ -82,7 +82,9 @@ test('default check bits = 0: header without +N, uncertainty lists all candidate
   assert.equal(K.decodeAny(pool, e.text.replace('M(256bit)', 'M(256+0bit)')).candidates[0].hex, K.bitsToHex(b));
   const parts = e.text.split(' '); parts[1] = parts[1][0] + '?';
   const d = K.decodeAny(pool, parts.join(' '));
-  assert.equal(d.candidates.length, 4); assert.ok(d.candidates.some(x => x.hex === K.bitsToHex(b)));
+  assert.ok(d.candidates.some(x => x.hex === K.bitsToHex(b)));
+  // Without check bits only the padding can filter: v1.1 surplus is data-derived, so wrong candidates usually drop out.
+  if (e.surplus === 0) assert.equal(d.candidates.length, 4); else assert.ok(d.candidates.length >= 1 && d.candidates.length <= 4);
 });
 test('check strokes can be marked ? and are enumerated too', () => {
   const b = K.randomBits(256), e = K.encodeAlpha(b, { checkBits: 12 });

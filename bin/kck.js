@@ -20,6 +20,7 @@ const USAGE = `usage:
                                         (decode/pretty auto-detect the A(...) header)
   --alpha-pos 3,7 --tail kanji|alpha    mixed mode: positions (1-based) that are alpha glyphs, others kanji;
                                         --tail alpha finishes with glyphs instead of a padded kanji
+                                        (padding = surplus bits derived from the key; v1.0 zero padding still decodes)
   kck pretty "<text>"                   show stroke-by-stroke color names`;
 const enc = (b, o) => mixed ? K.encodeMixed(pool, b, { ...o, alphaPos, tail: tailArg ?? 'kanji' }) : alpha ? K.encodeAlpha(b, o) : K.encodeBits(pool, b, o);
 const show = (r) => { console.log(r.text); console.error(`# ${r.tokens.filter(t => t.type === 'kanji').length} kanji, ${r.tokens.filter(t => t.type === 'hex').length} hex, ${r.tokens.filter(t => t.type === 'alpha').length} alpha, ${r.totalBits} bits`); };

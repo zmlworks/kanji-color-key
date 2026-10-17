@@ -58,9 +58,44 @@ const readInt = (bits, pos, n) => { let v = 0; for (let i = 0; i < n; i++) v = v
 
 // Check code: first `checkBits` bits of SHA-256( "kck1" || u32 bit-length || data bytes ).
 export function checkCode(dataBits, checkBits = DEFAULT_CHECK_BITS) {
+  if (!checkBits) return [];
   const body = bitsToBytes(dataBits), msg = new Uint8Array(8 + body.length);
   msg.set([0x6b, 0x63, 0x6b, 0x31]); new DataView(msg.buffer).setUint32(4, dataBits.length); msg.set(body, 8);
   return bytesToBits(sha256(msg)).slice(0, checkBits);
+}
+
+// Surplus (padding) bits. Symbols are written whole, so after data + check there are leftover bit slots up to
+// the end of the last symbol (strokes of the last kanji, glyph/color of a trailing alphanumeric, ...).
+// Until v1.0 they were 0 (black / glyph "2"); since v1.1 they are filled with bits derived from the data:
+//   surplus = SHA-256( "kckp" || u32 bit-length || u32 counter || data bytes ), counter = 0, 1, ... concatenated.
+// Deterministic for the same key, domain-separated from the check code ("kck1"), and it reveals nothing beyond
+// the data that is written anyway. The decoder accepts either all-zero padding (old outputs) or exactly this
+// derived surplus, so the padding still works as a check.
+export function surplusBits(dataBits, n) {
+  const body = bitsToBytes(dataBits), msg = new Uint8Array(12 + body.length), dv = new DataView(msg.buffer), out = [];
+  msg.set([0x6b, 0x63, 0x6b, 0x70]); dv.setUint32(4, dataBits.length); msg.set(body, 12);
+  for (let ctr = 0; out.length < n; ctr++) { dv.setUint32(8, ctr); out.push(...bytesToBits(sha256(msg))); }
+  return out.slice(0, n);
+}
+// Longest possible padding: a kanji started with <12 bits left (12 + 2 x 25 strokes) — 512 is ample.
+const SURPLUS_MAX = 512;
+// Bit stream for the encoders: data, check, then surplus. L = data + check length (the meaningful part).
+function streamOf(dataBits, checkBits) {
+  const body = dataBits.concat(checkCode(dataBits, checkBits));
+  return { bits: body.concat(surplusBits(dataBits, SURPLUS_MAX)), L: body.length };
+}
+// Classify the padding of a decoded candidate: 'none' (no padding), 'surplus' (v1.1+), 'zero' (v1.0 style), or null (reject).
+export function paddingKind(data, pad) {
+  if (!pad.length) return 'none';
+  if (pad.every(b => b === 0)) return 'zero'; // v1.0 output (or a surplus that happens to be all zero)
+  // same as surplusBits(data, pad.length) compared bit by bit, but stops at the first mismatch (hot path in decoding)
+  const body = bitsToBytes(data), msg = new Uint8Array(12 + body.length), dv = new DataView(msg.buffer);
+  msg.set([0x6b, 0x63, 0x6b, 0x70]); dv.setUint32(4, data.length); msg.set(body, 12);
+  for (let j = 0, h; j < pad.length; j++) {
+    if (j % 256 === 0) { dv.setUint32(8, j / 256); h = sha256(msg); }
+    if (((h[(j % 256) >> 3] >> (7 - (j & 7))) & 1) !== pad[j]) return null;
+  }
+  return 'surplus';
 }
 
 // ---------- pool ----------
@@ -72,10 +107,10 @@ export function makePool(kanji, counts) {
 }
 
 // ---------- encode ----------
-// Returns { text, tokens, totalBits, dataBits, checkBits }.
+// Returns { text, tokens, totalBits, dataBits, checkBits, writtenBits, surplus } (surplus = padding bits written).
 // tokens: {type:'kanji', char, index, colors[]} | {type:'hex', char, color}
 export function encodeBits(pool, dataBits, { checkBits = DEFAULT_CHECK_BITS } = {}) {
-  const bits = dataBits.concat(checkCode(dataBits, checkBits)), L = bits.length, tokens = [];
+  const { bits, L } = streamOf(dataBits, checkBits), tokens = [];
   let pos = 0;
   while (L - pos >= 12) {
     const idx = readInt(bits, pos, 12); pos += 12;
@@ -86,7 +121,7 @@ export function encodeBits(pool, dataBits, { checkBits = DEFAULT_CHECK_BITS } = 
   while (pos < L) {
     tokens.push({ type: 'hex', char: HEX[readInt(bits, pos, 4)], color: readInt(bits, pos + 4, 2) }); pos += 6;
   }
-  return { tokens, text: formatTokens(tokens, dataBits.length, checkBits), totalBits: L, dataBits: dataBits.length, checkBits };
+  return { tokens, text: formatTokens(tokens, dataBits.length, checkBits), totalBits: L, dataBits: dataBits.length, checkBits, writtenBits: pos, surplus: pos - L };
 }
 export const encodeHex = (pool, hex, o) => encodeBits(pool, hexToBits(hex), o);
 export function formatTokens(tokens, dataLen, checkBits) {
@@ -181,12 +216,14 @@ export function parseText(pool, text) {
 }
 
 // ---------- decode ----------
-// Returns { candidates:[{bits, hex, text}], tried, total, checkBits, dataBits }.
+// Returns { candidates:[{bits, hex, text, tokens, padding}], tried, total, checkBits, dataBits }.
+// A candidate must match the check code and its padding must be all zero (v1.0) or the derived surplus (v1.1+).
+// Candidates are unique by data (the same key reached via zero and surplus padding is listed once).
 export function decodeText(pool, text, { maxCandidates = 2_000_000 } = {}) {
   const p = parseText(pool, text);
   const total = p.tokens.reduce((a, t) => a * t.options.length, 1);
   if (total > maxCandidates) throw new Error(`too many combinations (${total}); narrow the uncertainty`);
-  const L = p.dataBits + p.checkBits, results = [];
+  const L = p.dataBits + p.checkBits, results = [], seen = new Set();
   const choice = new Array(p.tokens.length).fill(0);
   let tried = 0;
   for (;;) {
@@ -198,13 +235,16 @@ export function decodeText(pool, text, { maxCandidates = 2_000_000 } = {}) {
       else { const v = HEX.indexOf(t.char); for (let b = 3; b >= 0; b--) bits.push((v >> b) & 1); }
       for (const c of col) bits.push(c >> 1, c & 1);
     });
-    if (bits.slice(L).every(b => b === 0)) {
-      const data = bits.slice(0, p.dataBits), chk = bits.slice(p.dataBits, L);
-      if (checkCode(data, p.checkBits).every((b, j) => b === chk[j])) {
+    const data = bits.slice(0, p.dataBits), chk = bits.slice(p.dataBits, L);
+    const padding = checkCode(data, p.checkBits).every((b, j) => b === chk[j]) && paddingKind(data, bits.slice(L));
+    if (padding) {
+      const dk = data.join('');
+      if (!seen.has(dk)) {
+        seen.add(dk);
         const tokens = p.tokens.map((t, k) => t.type === 'kanji'
           ? { type: 'kanji', char: t.char, index: t.index, colors: t.options[choice[k]] }
           : { type: 'hex', char: t.char, color: t.options[choice[k]][0] });
-        results.push({ bits: data, hex: bitsToHex(data), text: formatTokens(tokens, p.dataBits, p.checkBits), tokens });
+        results.push({ bits: data, hex: bitsToHex(data), text: formatTokens(tokens, p.dataBits, p.checkBits), tokens, padding });
       }
     }
     let k = 0;
@@ -232,9 +272,10 @@ export function randomBits(n) {
 export const ALPHA = '2345679ABCDEFGHIJKLMNOPQRSTVWXYZ';
 // Text: "A(256+12bit)" header, then pairs <glyph><color digit>, grouped by 4 with spaces (whitespace ignored).
 export function encodeAlpha(dataBits, { checkBits = DEFAULT_CHECK_BITS } = {}) {
-  const bits = dataBits.concat(checkCode(dataBits, checkBits)), L = bits.length, tokens = [];
+  const { bits, L } = streamOf(dataBits, checkBits), tokens = [];
   for (let pos = 0; pos < L; pos += 7) tokens.push({ type: 'alpha', char: ALPHA[readInt(bits, pos, 5)], color: readInt(bits, pos + 5, 2) });
-  return { tokens, text: formatAlpha(tokens, dataBits.length, checkBits), totalBits: L, dataBits: dataBits.length, checkBits };
+  const written = tokens.length * 7;
+  return { tokens, text: formatAlpha(tokens, dataBits.length, checkBits), totalBits: L, dataBits: dataBits.length, checkBits, writtenBits: written, surplus: written - L };
 }
 export function formatAlpha(tokens, dataLen, checkBits) {
   return `A(${dataLen}${checkBits ? '+' + checkBits : ''}bit)` + tokens.map((t, i) => (i && i % 4 === 0 ? ' ' : '') + t.char + t.color).join('');
@@ -261,16 +302,19 @@ export function decodeAlpha(text, { maxCandidates = 2_000_000 } = {}) {
   const p = parseAlpha(text), L = p.dataBits + p.checkBits;
   const total = p.tokens.reduce((a, t) => a * t.options.length, 1);
   if (total > maxCandidates) throw new Error(`too many combinations (${total}); narrow the uncertainty`);
-  const choice = new Array(p.tokens.length).fill(0), results = []; let tried = 0;
+  const choice = new Array(p.tokens.length).fill(0), results = [], seen = new Set(); let tried = 0;
   for (;;) {
     tried++;
     const bits = [];
     p.tokens.forEach((t, k) => { const v = t.options[choice[k]]; for (let b = 6; b >= 0; b--) bits.push((v >> b) & 1); });
-    if (bits.slice(L).every(b => b === 0)) {
-      const data = bits.slice(0, p.dataBits), chk = bits.slice(p.dataBits, L);
-      if (checkCode(data, p.checkBits).every((b, j) => b === chk[j])) {
+    const data = bits.slice(0, p.dataBits), chk = bits.slice(p.dataBits, L);
+    const padding = checkCode(data, p.checkBits).every((b, j) => b === chk[j]) && paddingKind(data, bits.slice(L));
+    if (padding) {
+      const dk = data.join('');
+      if (!seen.has(dk)) {
+        seen.add(dk);
         const tokens = p.tokens.map((t, k) => ({ type: 'alpha', char: ALPHA[t.options[choice[k]] >> 2], color: t.options[choice[k]] & 3 }));
-        results.push({ bits: data, hex: bitsToHex(data), text: formatAlpha(tokens, p.dataBits, p.checkBits), tokens });
+        results.push({ bits: data, hex: bitsToHex(data), text: formatAlpha(tokens, p.dataBits, p.checkBits), tokens, padding });
       }
     }
     let k = 0;
@@ -285,11 +329,11 @@ export const decodeAny = (pool, text, o) => isAlphaText(text) ? decodeAlpha(text
 
 // ---------- mixed mode: each symbol is a pool kanji (12 bit + 2 bit/stroke) or an alpha-32 glyph (7 bit) ----------
 // alphaPos: Set of 1-based symbol positions that are alpha glyphs; other positions are kanji.
-// tail 'kanji': keep the scheme to the end (last symbol zero-padded).
+// tail 'kanji': keep the scheme to the end (last symbol filled with surplus bits).
 // tail 'alpha': as soon as the next kanji would not be fully used by the remaining bits, finish with alpha glyphs.
 // Text: "M(256+12bit)" + symbols separated by spaces: <kanji><color digits> or <glyph><color digit>.
 export function encodeMixed(pool, dataBits, { checkBits = DEFAULT_CHECK_BITS, alphaPos = [], tail = 'kanji' } = {}) {
-  const ap = new Set(alphaPos), bits = dataBits.concat(checkCode(dataBits, checkBits)), L = bits.length, tokens = [];
+  const ap = new Set(alphaPos), { bits, L } = streamOf(dataBits, checkBits), tokens = [];
   let pos = 0, alphaRest = false;
   for (let i = 1; pos < L; i++) {
     let isAlpha = alphaRest || ap.has(i);
@@ -304,7 +348,7 @@ export function encodeMixed(pool, dataBits, { checkBits = DEFAULT_CHECK_BITS, al
       tokens.push({ type: 'kanji', char: pool.chars[idx], index: idx, colors });
     }
   }
-  return { tokens, text: formatMixed(tokens, dataBits.length, checkBits), totalBits: L, dataBits: dataBits.length, checkBits, writtenBits: pos };
+  return { tokens, text: formatMixed(tokens, dataBits.length, checkBits), totalBits: L, dataBits: dataBits.length, checkBits, writtenBits: pos, surplus: pos - L };
 }
 export function formatMixed(tokens, dataLen, checkBits) {
   return `M(${dataLen}${checkBits ? '+' + checkBits : ''}bit)` + tokens.map(t => t.type === 'kanji' ? t.char + t.colors.join('') : t.char + t.color).join(' ');
@@ -348,7 +392,7 @@ export function decodeMixed(pool, text, { maxCandidates = 2_000_000 } = {}) {
   const p = parseMixed(pool, text), L = p.dataBits + p.checkBits;
   const total = p.tokens.reduce((a, t) => a * t.options.length, 1);
   if (total > maxCandidates) throw new Error(`too many combinations (${total}); narrow the uncertainty`);
-  const choice = new Array(p.tokens.length).fill(0), results = []; let tried = 0;
+  const choice = new Array(p.tokens.length).fill(0), results = [], seen = new Set(); let tried = 0;
   for (;;) {
     tried++;
     const bits = [];
@@ -357,13 +401,16 @@ export function decodeMixed(pool, text, { maxCandidates = 2_000_000 } = {}) {
       if (t.type === 'kanji') { for (let b = 11; b >= 0; b--) bits.push((t.index >> b) & 1); for (const c of o) bits.push(c >> 1, c & 1); }
       else for (let b = 6; b >= 0; b--) bits.push((o >> b) & 1);
     });
-    if (bits.slice(L).every(b => b === 0)) {
-      const data = bits.slice(0, p.dataBits), chk = bits.slice(p.dataBits, L);
-      if (checkCode(data, p.checkBits).every((b, j) => b === chk[j])) {
+    const data = bits.slice(0, p.dataBits), chk = bits.slice(p.dataBits, L);
+    const padding = checkCode(data, p.checkBits).every((b, j) => b === chk[j]) && paddingKind(data, bits.slice(L));
+    if (padding) {
+      const dk = data.join('');
+      if (!seen.has(dk)) {
+        seen.add(dk);
         const tokens = p.tokens.map((t, k) => t.type === 'kanji'
           ? { type: 'kanji', char: t.char, index: t.index, colors: t.options[choice[k]] }
           : { type: 'alpha', char: ALPHA[t.options[choice[k]] >> 2], color: t.options[choice[k]] & 3 });
-        results.push({ bits: data, hex: bitsToHex(data), text: formatMixed(tokens, p.dataBits, p.checkBits), tokens });
+        results.push({ bits: data, hex: bitsToHex(data), text: formatMixed(tokens, p.dataBits, p.checkBits), tokens, padding });
       }
     }
     let k = 0;

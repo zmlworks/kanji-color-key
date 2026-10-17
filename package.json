@@ -1,1 +1,1 @@
-{"name":"kanji-color-key","version":"1.0.0","type":"module","license":"MIT","bin":{"kanji-color-key":"bin/kck.js"},"scripts":{"test":"node --test test/","build":"node tools/build-web.js"}}
+{"name":"kanji-color-key","version":"1.1.0","type":"module","license":"MIT","bin":{"kanji-color-key":"bin/kck.js"},"scripts":{"test":"node --test test/*.test.js","build":"node tools/build-web.js"}}
