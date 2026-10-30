@@ -1,5 +1,6 @@
 <!doctype html>
-<html lang="ja" data-theme="auto"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="ja" data-theme="auto"><head><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="/*__CSP__*/"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>kanji-color-key — 4色の書き順で鍵を手書きする</title>
 <meta name="color-scheme" content="light dark">
 <link rel="icon" type="image/png" sizes="64x64" href="/*__FAVICON__*/">
@@ -31,7 +32,7 @@ button{padding:6px 12px;margin:4px 4px 4px 0;cursor:pointer}fieldset{border:1px 
 .s0{stroke:var(--k0)}.s1{stroke:var(--k1)}.s2{stroke:var(--k2)}.s3{stroke:var(--k3)}.t0{fill:var(--k0)}.t1{fill:var(--k1)}.t2{fill:var(--k2)}.t3{fill:var(--k3)}
 .n0{color:var(--k0)}.n1{color:var(--k1)}.n2{color:var(--k2)}.n3{color:var(--k3)}
 </style></head><body>
-<h1><img alt="" src="/*__FAVICON__*/">kanji-color-key <small id="ver">v1.2.0</small><span class="sp"></span><button id="bTheme" title="表示テーマ（自動＝OSの設定に従う）">表示: 自動</button></h1>
+<h1><img alt="" src="/*__FAVICON__*/">kanji-color-key <small id="ver">v1.2.1</small><span class="sp"></span><button id="bTheme" title="表示テーマ（自動＝OSの設定に従う）">表示: 自動</button></h1>
 <ul class="intro">
 <li>暗号化の最終的な鍵としてよく使われる 256 bit 乱数を一画ごとに色のついた約8文字の漢字に直します</li>
 <li>余剰bitが発生してもチェックになる利点があります（余った画や英数字も、黒ではなく鍵から決まる色で埋まります）</li>
@@ -39,7 +40,7 @@ button{padding:6px 12px;margin:4px 4px 4px 0;cursor:pointer}fieldset{border:1px 
 <li>最後は帳尻合わせのため色付き英数字を選べます。また、文字列の途中を英数字にして意味のある漢字を狙うこともできます</li>
 <li>v1.2 から<b>かな</b>（32字・各画に色）も使えます。記号をクリックするたびに 漢字→英数字→かな→漢字 と切り替わります。全部かなにもできます</li>
 </ul>
-<p class="legend"><a href="#explain" onclick="document.getElementById('explain').open=true">AIによる解説</a>　英数字にも、画ごとではなく1文字ごとに色の区別があります。 色: <span class="n0">黒</span><span class="n1">赤</span><span class="n2">青</span><span class="n3">緑</span></p>
+<p class="legend"><a href="#explain" id="aExplain">AIによる解説</a>　英数字にも、画ごとではなく1文字ごとに色の区別があります。 色: <span class="n0">黒</span><span class="n1">赤</span><span class="n2">青</span><span class="n3">緑</span></p>
 <fieldset><legend>鍵</legend>
 <button id="bRand">乱数で実験する</button>
 データビット数: <input id="bits" type="range" min="64" max="512" step="8" value="256" style="width:35%;vertical-align:middle"> <b id="bitsV">256</b> bit
@@ -199,16 +200,27 @@ $('bits').oninput = () => { $('bits').dataset.touched = 1; custom = null; render
 const useBits = b => { custom = b; types = {}; render(); };
 $('bHex').onclick = () => { try { useBits(hexToBits($('hex').value)); } catch (e) { $('err').textContent = e.message; } };
 $('bBin').onclick = () => { try { useBits(parseBitString($('bin').value)); } catch (e) { $('err').textContent = e.message; } };
-$('bPass').onclick = async () => { $('keyInfo').textContent = '導出中…'; const k = await deriveKey($('pass').value, { salt: $('salt').value }); $('hex').value = bitsToHex(bytesToBits(k)); useBits(bytesToBits(k)); };
+$('bPass').onclick = async () => {
+  $('err').textContent = ''; $('keyInfo').textContent = '導出中…'; $('bPass').disabled = true;
+  try { const k = await deriveKey($('pass').value, { salt: $('salt').value }); $('hex').value = bitsToHex(bytesToBits(k)); useBits(bytesToBits(k)); }
+  catch (e) { $('keyInfo').textContent = ''; $('err').textContent = '導出に失敗しました: ' + (e && e.message || e); }
+  finally { $('bPass').disabled = false; }
+};
+// Build DOM nodes with textContent only (error messages and candidates can contain the user's input)
+const el = (tag, text, cls) => { const n = document.createElement(tag); if (text != null) n.textContent = text; if (cls) n.className = cls; return n; };
 $('bDec').onclick = () => {
   try { const r = decodeAny(pool, $('dec').value, { kana, swapLookalikes: $('lookAlways').checked });
     const note = r.checkBits === 0 ? (r.candidates.length > 1 ? '（チェックビット0のため候補を絞り込めません。チェックを付けるか、各候補を実際のパスワードマネージャ等で試してください）' : '（チェックビット0：照合なし）')
       : (r.candidates.length > 1 ? `（${r.checkBits}bitチェックでも複数残りました。各候補を試してください）` : '');
-    const look = r.lookalike === 'fallback' ? '<br>（そのままでは候補がなかったため、かなの見間違い（お/オ など）を入れ替えた読みも試しました。候補の文字列で入れ替わった字を確かめてください）'
-      : r.lookalike === 'always' ? '<br>（かなの見間違いを入れ替えた読みも試しました）' : r.lookalike === 'skipped' ? '<br>（かなの見間違いの入れ替えは、組み合わせが多すぎるため試していません）' : '';
-    $('decOut').innerHTML = `${r.tried}通り試行 → 候補 ${r.candidates.length}件${note}${r.candidates.length > 50 ? '（先頭50件のみ表示）' : ''}${look}<br>` + r.candidates.slice(0, 50).map(c => `<div>${c.hex}<br><small>${c.text}</small></div>`).join('');
-  } catch (e) { $('decOut').innerHTML = `<span class="err">${e.message}</span>`; }
+    const look = r.lookalike === 'fallback' ? '（そのままでは候補がなかったため、かなの見間違い（お/オ など）を入れ替えた読みも試しました。候補の文字列で入れ替わった字を確かめてください）'
+      : r.lookalike === 'always' ? '（かなの見間違いを入れ替えた読みも試しました）' : r.lookalike === 'skipped' ? '（かなの見間違いの入れ替えは、組み合わせが多すぎるため試していません）' : '';
+    const out = [el('div', `${r.tried}通り試行 → 候補 ${r.candidates.length}件${note}${r.candidates.length > 50 ? '（先頭50件のみ表示）' : ''}`)];
+    if (look) out.push(el('div', look));
+    for (const c of r.candidates.slice(0, 50)) { const d = el('div', c.hex); d.append(el('br'), el('small', c.text)); out.push(d); }
+    $('decOut').replaceChildren(...out);
+  } catch (e) { $('decOut').replaceChildren(el('span', e && e.message || String(e), 'err')); }
 };
+$('aExplain').onclick = () => { $('explain').open = true; };
 if (location.hash === '#explain') $('explain').open = true;
 if (location.hash === '#demo') {
   key = hexToBits('c2fb9f70272dae3adee45198b576b4873f5ad57ac41696bdfaa92e6de9923e14'.repeat(2));

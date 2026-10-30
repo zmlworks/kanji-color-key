@@ -19,7 +19,9 @@ const USAGE = `usage:
   kck encode <hex> [--check N]          encode hex data
   kck encode-bits <0101...> [--check N] encode arbitrary bit string
   kck random [--bits 256] [--check N]   generate a random key and encode it
-  kck hash <passphrase> [--salt S] [--iter N]  derive 256-bit key (PBKDF2-SHA256) and encode it
+  kck hash [--salt S] [--iter N]        derive 256-bit key (PBKDF2-SHA256) and encode it; the passphrase is
+                                        read from a hidden prompt, or from stdin when piped (printf %s 'pass' | kck hash)
+  kck hash <passphrase> ...             (also accepted, with a warning: it stays in shell history / ps)
   kck decode "<text>"                   decode; supports ? (unknown color), (..) shifted block, [..] permuted block
   --alpha                               use alpha mode (32 glyphs 2345679ABCDEFGHIJKLMNOPQRSTVWXYZ x 4 colors = 7 bit/symbol)
                                         (decode/pretty auto-detect the A(...) header)
@@ -37,15 +39,50 @@ const enc = (b, o) => kanaFixed ? K.encodeKanaFixed(kana, b, o)
   : alpha ? K.encodeAlpha(b, o) : K.encodeBits(pool, b, o);
 const n = (r, ...ty) => r.tokens.filter(t => ty.includes(t.type)).length;
 const show = (r) => { console.log(r.text); console.error(`# ${n(r, 'kanji')} kanji, ${n(r, 'hex')} hex, ${n(r, 'alpha')} alpha, ${n(r, 'kana')} kana, ${n(r, 'kanaGlyph')} one-color kana, ${r.totalBits} bits`); };
-const check = () => { const c = opt('--check'); return { checkBits: c === undefined ? K.DEFAULT_CHECK_BITS : +c }; };
+const intOpt = (name, def, min, max) => {
+  const v = opt(name);
+  if (v === undefined) return def;
+  if (!/^\d+$/.test(v) || +v < min || +v > max) throw new Error(`${name} must be an integer ${min}..${max} (got ${JSON.stringify(v)})`);
+  return +v;
+};
+const check = () => ({ checkBits: intOpt('--check', K.DEFAULT_CHECK_BITS, 0, 64) });
+/* Passphrase: from stdin (piped) or a hidden prompt (TTY). The old argument form still works but
+   leaves the passphrase in shell history and the process list, so it prints a warning. */
+async function readPassphrase() {
+  const stdin = process.stdin;
+  if (!stdin.isTTY) {
+    let s = ''; stdin.setEncoding('utf8');
+    for await (const c of stdin) s += c;
+    return s.replace(/\r?\n$/, '');
+  }
+  process.stderr.write('passphrase: ');
+  return await new Promise((resolve, reject) => {
+    let s = '';
+    stdin.setRawMode(true); stdin.setEncoding('utf8'); stdin.resume();
+    const done = (err) => { stdin.setRawMode(false); stdin.pause(); stdin.off('data', onData); process.stderr.write('\n'); err ? reject(err) : resolve(s); };
+    const onData = (chunk) => {
+      for (const ch of chunk) {
+        if (ch === '\r' || ch === '\n' || ch === '\u0004') return done();
+        if (ch === '\u0003') return done(new Error('cancelled'));
+        if (ch === '\u007f' || ch === '\b') s = [...s].slice(0, -1).join(''); else s += ch;
+      }
+    };
+    stdin.on('data', onData);
+  });
+}
 const colorNames = (spec) => [...spec].map(c => K.COLORS[+c] ?? c).join(' ');
 try {
   if (cmd === 'encode') { const o = check(); show(enc(K.hexToBits(args[0] ?? ''), o)); }
   else if (cmd === 'encode-bits') { const o = check(); show(enc(K.parseBitString(args[0] ?? ''), o)); }
-  else if (cmd === 'random') { const nb = +(opt('--bits') ?? 256), o = check(); const b = K.randomBits(nb); console.log(K.bitsToHex(b)); show(enc(b, o)); }
+  else if (cmd === 'random') { const nb = intOpt('--bits', 256, 1, 4096), o = check(); const b = K.randomBits(nb); console.log(K.bitsToHex(b)); show(enc(b, o)); }
   else if (cmd === 'hash') {
-    const salt = opt('--salt') ?? '', iter = +(opt('--iter') ?? K.KDF_ITERATIONS), o = check();
-    const key = await K.deriveKey(args[0] ?? '', { salt, iterations: iter });
+    const salt = opt('--salt') ?? '', iter = intOpt('--iter', K.KDF_ITERATIONS, 1, 100000000), o = check();
+    let pass;
+    if (args[0] !== undefined && args[0] !== '-') {
+      pass = args[0];
+      console.error('warning: a passphrase given on the command line stays in shell history and is visible to other processes; run "kck hash" without it to type it at a hidden prompt, or pipe it on stdin');
+    } else pass = await readPassphrase();
+    const key = await K.deriveKey(pass, { salt, iterations: iter });
     console.log(K.bitsToHex(K.bytesToBits(key))); show(enc(K.bytesToBits(key), o));
   } else if (cmd === 'decode') {
     const r = K.decodeAny(pool, args.join(' '), lookOpts);
